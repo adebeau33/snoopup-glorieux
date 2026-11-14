@@ -4,12 +4,12 @@ Application responsive Bootstrap/Django pour `https://glorieux.snoopup.io`.
 
 ## Fonctionnement
 
-- Comptes étudiants réservés au domaine exact `grandlebrun.com`, email et téléphone obligatoires. Email par lien et téléphone par code SMS doivent être vérifiés avant préinscription/réservation.
+- Comptes étudiants réservés au domaine exact `grandlebrun.com` et aux deux exceptions exactes autorisées pour les tests (`alban.debeaupuis@gmail.com`, `alban@audiopro.fr`), email et téléphone obligatoires. Email par lien et téléphone par code SMS doivent être vérifiés avant préinscription/réservation.
 - Préinscription personnelle : code événement, classe et déclaration de majorité à la date de la soirée. Pour un achat groupé, chaque bénéficiaire doit terminer ce parcours personnel au préalable.
 - Paiement unique d’une commande de 1 à 20 bénéficiaires via SumUp hébergé. Tarif serveur, récapitulatif signé, jauge protégée par transaction. Vérification API après callback et réconciliation périodique, sans confiance dans le retour navigateur.
-- Billet individuel PNG et PDF, lien privé distinct du QR public, signature HMAC-SHA-256. Distribution SMS persistante, relances contrôlées.
+- Billet individuel PNG et PDF, lien privé distinct du QR public, référence unique et signature HMAC-SHA-256 imprimées. QR autonome signé (référence, événement, prix, devise), vérification cryptographique avant recherche en base ; signature authentique inconnue en orange sans acceptation, signature invalide en rouge. Distribution SMS persistante, relances contrôlées.
 - QR public vers la page événement sans consommation. `/validation/` exige un compte habilité, une affectation et un navigateur approuvé, avec expiration. Événement contrôlé explicite ; refus des doubles scans.
-- `/gestion/` : KPI, effectifs et listes par classe, recherche et export CSV. `/admin/` : événements, classes, comptes, affectations, appareils, paiements, billets et envois. Le superadmin seul gère les administrateurs et voit les comptes privilégiés.
+- `/gestion/` : KPI, effectifs et listes par classe, recherche et export CSV. `/admin/` : événements, classes, comptes, affectations, appareils, paiements, billets et envois. Le superadmin seul gère les administrateurs et voit les comptes privilégiés. Aucune option administrateur n’est affichée à l’inscription ; le superadmin accorde ensuite ce rôle aux comptes sélectionnés.
 - Partage natif/copie de lien et images Open Graph publiques, sans secret de billet. Polices et bibliothèques JS/CSS hébergées localement.
 
 ## Configuration avant ouverture
@@ -43,7 +43,7 @@ SECRET_KEY=tests DEBUG=1 .venv/bin/python manage.py test core.load_validation --
 
 La base de test est `/tmp/glorieux-test.sqlite3`, distincte de la production. Ne pas lancer deux suites simultanément.
 
-Le test de charge isolé a mesuré 2 000 validations avec 8 threads en 17,06 s, p95 245 ms, sans double entrée. Il mesure la logique serveur sur la machine, hors caméra, réseau mobile et plafond du service HTTP ; il ne constitue pas une recette de 2 000 téléphones connectés.
+Le test de charge isolé a mesuré 2 000 validations avec 8 threads en 16,98 s, p95 246 ms, sans double entrée. Il mesure la logique serveur sur la machine, hors caméra, réseau mobile et plafond du service HTTP ; il ne constitue pas une recette de 2 000 téléphones connectés.
 
 ## Exploitation et sauvegarde
 

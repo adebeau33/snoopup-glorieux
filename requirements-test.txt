@@ -1,0 +1,2 @@
+# Optional independent decoding check for generated ticket artwork; not installed in production.
+zxing-cpp>=2.3,<4

@@ -20,6 +20,17 @@ class SuperOnly(admin.ModelAdmin):
 class Users(UserAdmin):
  fieldsets=UserAdmin.fieldsets+(("Glorieux",{'fields':('phone','role','email_verified','phone_verified')}),)
  list_display=['username','first_name','last_name','role','email_verified','phone_verified']
+ actions=['approve_admins']
+ @admin.action(description='Accorder le rôle administrateur aux comptes sélectionnés')
+ def approve_admins(self,r,qs):
+  if not r.user.is_superuser:raise PermissionDenied()
+  for user in qs.filter(is_superuser=False).exclude(role='admin'):
+   user.role='admin';user.is_staff=True;user.save()
+   Audit.objects.create(actor=r.user,action='approbation_administrateur',object_id=str(user.pk))
+ def get_actions(self,r):
+  actions=super().get_actions(r)
+  if not r.user.is_superuser:actions.pop('approve_admins',None)
+  return actions
  def allowed(self,r):return r.user.is_superuser or r.user.role=='admin'
  def get_queryset(self,r):
   qs=super().get_queryset(r)

@@ -10,32 +10,66 @@ from django.db import transaction
 from django.utils import timezone
 from .models import Ticket,Device,Assignment,Audit
 
-def ticket_token(ticket):
- message=f'{ticket.pk}:{ticket.line.order.event_id}:{ticket.line.price_cents}:EUR'
- sig=hmac.new(settings.TICKET_SECRET.encode(),message.encode(),hashlib.sha256).hexdigest()
- return f'{ticket.pk}.{sig}'
+def ticket_data(ticket):
+ return {'r':ticket.reference,'e':ticket.line.order.event_id,'p':ticket.line.price_cents,'c':'EUR'}
 
-def resolve_ticket(value):
+def encoded_ticket_data(data):
+ import base64,json
+ raw=json.dumps(data,sort_keys=True,separators=(',',':')).encode()
+ return base64.urlsafe_b64encode(raw).decode().rstrip('=')
+
+def ticket_token(ticket):
+ encoded=encoded_ticket_data(ticket_data(ticket))
+ message='v1.'+encoded
+ signature=hmac.new(settings.TICKET_SECRET.encode(),message.encode(),hashlib.sha256).hexdigest()
+ return message+'.'+signature
+
+def verify_qr_data(value):
+ """Verify authenticity before any database lookup. Never disclose the signing key."""
+ import base64,json,uuid
+ if not isinstance(value,str) or len(value)>2048:raise ValidationError('Format du QR code invalide.',code='format_invalid')
  if value.startswith('https://'):
   url=urlsplit(value)
-  if url.netloc!=urlsplit(settings.SITE_URL).netloc or not url.path.startswith('/q/'):raise ValidationError('QR code étranger à cette billetterie.')
+  if url.netloc!=urlsplit(settings.SITE_URL).netloc or not url.path.startswith('/q/'):raise ValidationError('QR code étranger à cette billetterie.',code='format_invalid')
   value=url.path[3:].strip('/')
- try:t=Ticket.objects.select_related('line__order__event','line__registration__user').get(pk=value.split('.')[0])
- except Exception:raise ValidationError('Billet inconnu.')
- if not hmac.compare_digest(ticket_token(t),value):raise ValidationError('Signature du billet incorrecte.')
+ try:version,encoded,signature=value.split('.')
+ except ValueError:raise ValidationError('QR code incomplet ou illisible.',code='format_invalid')
+ if version!='v1':raise ValidationError('Version de billet non reconnue.',code='format_invalid')
+ expected=hmac.new(settings.TICKET_SECRET.encode(),('v1.'+encoded).encode(),hashlib.sha256).hexdigest()
+ if len(signature)!=64 or any(c not in '0123456789abcdef' for c in signature) or not hmac.compare_digest(expected,signature):raise ValidationError('Signature invalide : QR code falsifié ou altéré.',code='signature_invalid')
+ try:
+  data=json.loads(base64.b64decode(encoded+'='*(-len(encoded)%4),altchars=b'-_',validate=True))
+  if set(data)!=set(['r','e','p','c']) or type(data['e']) is not int or data['e']<=0 or type(data['p']) is not int or data['p']<0 or data['c']!='EUR':raise ValueError()
+  reference='GL-'+str(uuid.UUID(data['r'][3:])).upper()
+  if data['r']!=reference:raise ValueError()
+ except Exception:raise ValidationError('Données signées illisibles : contrôle de l’organisation requis.',code='signed_format_invalid')
+ return data
+
+def resolve_ticket(value):
+ data=verify_qr_data(value)
+ try:t=Ticket.objects.select_related('line__order__event','line__registration__user').get(pk=data['r'][3:])
+ except Ticket.DoesNotExist:raise ValidationError('Signature authentique, mais référence absente de la base. Contrôle de l’organisation requis.',code='authentic_unknown')
+ if ticket_data(t)!=data:raise ValidationError('Signature authentique, mais données différentes de la base. Contrôle de l’organisation requis.',code='authentic_mismatch')
  return t
 
 def scan_ticket(user,device,value,event_id=None):
  if not user.is_active or not (user.is_superuser or user.role in ['admin','organizer','validator']):raise PermissionDenied()
  d=Device.objects.filter(pk=device.pk,user=user,approved=True,expires_at__gt=timezone.now()).first()
  if not d:raise PermissionDenied('Téléphone non autorisé ou autorisation expirée.')
- t=resolve_ticket(value);e=t.line.order.event
+ data=verify_qr_data(value)
  if event_id is None:
   assigned=list(Assignment.objects.filter(user=user).values_list('event_id',flat=True))
   if len(assigned)!=1:raise PermissionDenied('Choisissez la soirée à contrôler.')
   event_id=assigned[0]
- if int(event_id)!=e.pk:raise PermissionDenied('Ce billet appartient à une autre soirée.')
- if not (user.is_superuser or user.role=='admin' or Assignment.objects.filter(user=user,event=e).exists()):raise PermissionDenied('Vous n’êtes pas affecté à cet événement.')
+ if int(event_id)!=data['e']:raise PermissionDenied('Ce billet appartient à une autre soirée.')
+ if not (user.is_superuser or user.role=='admin' or Assignment.objects.filter(user=user,event_id=event_id).exists()):raise PermissionDenied('Vous n’êtes pas affecté à cet événement.')
+ try:t=resolve_ticket(value)
+ except ValidationError as exc:
+  if exc.code in ['authentic_unknown','authentic_mismatch']:
+   from .models import Event
+   Audit.objects.create(actor=user,event_id=event_id if Event.objects.filter(pk=event_id).exists() else None,action=exc.code,object_id=data['r'])
+   return {'status':'unknown','message':exc.messages[0],'reference':data['r']}
+  raise
  with transaction.atomic():
   t=Ticket.objects.select_for_update().get(pk=t.pk)
   if not t.active or t.line.order.status!='paid':result={'status':'invalid','message':'Billet annulé ou non payé.'}
@@ -43,52 +77,92 @@ def scan_ticket(user,device,value,event_id=None):
   else:
    changed=Ticket.objects.filter(pk=t.pk,active=True,used_at__isnull=True,line__order__status='paid').update(used_at=timezone.now(),used_by=user)
    result={'status':'accepted' if changed else 'used','message':'Entrée validée' if changed else 'Billet déjà utilisé'}
-  Audit.objects.create(actor=user,event=e,action='scan_'+result['status'],object_id=str(t.pk))
- result['participant']=t.line.registration.user.get_full_name();return result
+  Audit.objects.create(actor=user,event_id=event_id,action='scan_'+result['status'],object_id=str(t.pk))
+ result['participant']=t.line.registration.user.get_full_name();result['reference']=t.reference;return result
 
 ADMISSION='Merci de présenter une pièce d’identité à l’entrée afin de permettre la vérification de votre identité. Cette soirée privée est réservée aux membres de l’établissement Sainte-Marie Grand Lebrun munis d’un billet nominatif valide. Toute personne sans billet valide ou extérieure à l’établissement se verra refuser l’accès.'
 MENTIONS=[ADMISSION,'Billet personnel — une seule entrée. Ne partagez pas ce QR code.','Ne pas déposer sur la voie publique.','L’abus d’alcool est dangereux pour la santé. À consommer avec modération.','Prévoyez votre retour : désignez un SAM qui ne boit pas.','Billet émis via Snoopup.io, prestataire technique de billetterie.','Snoopup.io n’intervient pas dans l’organisation ni dans le déroulement de la soirée.','Cette mention ne limite pas les responsabilités légalement applicables à chacun.']
 
+import threading
+_RENDER_LOCK=threading.Lock()
+
 def render_ticket(ticket,fmt):
+ # Serializing image composition keeps memory bounded on the shared 2GB host.
+ with _RENDER_LOCK:return _render_ticket(ticket,fmt)
+
+def _render_ticket(ticket,fmt):
  e=ticket.line.order.event;u=ticket.line.registration.user
- fontpath='/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf'
- def font(size):
-  for path in [fontpath,'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']:
-   try:return ImageFont.truetype(path,size)
-   except OSError:pass
-  return ImageFont.load_default(size=size)
- lines=[];y=230
- for text,size in [(e.name,40),(u.get_full_name(),36),(timezone.localtime(e.starts_at).strftime('%d/%m/%Y · %H:%M'),28),(e.venue,28),(e.address,24),(f'Prix payé : {ticket.line.price_cents/100:.2f} EUR',26)]:
-  for line in textwrap.wrap(text,48 if size<30 else 36):
-   lines.append((line,size,y));y+=size+12
- qr_y=max(650,y+15);footer_y=qr_y+460
- foot=[]
+ navy='#152440';gold='#cfad60';cream='#f6f1e6';muted='#667085'
+ def font(size,heading=False):
+  path=settings.BASE_DIR/('static/core/font-3.ttf' if heading else 'static/core/font-4.ttf')
+  try:return ImageFont.truetype(str(path),size)
+  except OSError:return ImageFont.load_default(size=size)
+ def badge(image,x,y,size):
+  try:
+   source=Image.open(settings.BASE_DIR/'static/core/logo-source.png').convert('RGBA');sx=source.width/942;sy=source.height/2048
+   crop=source.crop((int(160*sx),int(576*sy),int(782*sx),int(1198*sy))).resize((size,size))
+   mask=Image.new('L',(size,size));ImageDraw.Draw(mask).ellipse((0,0,size-1,size-1),fill=255);image.paste(crop,(x,y),mask)
+  except OSError:pass
+ # Compose and measure every line before allocating the ticket canvas.
+ elements=[];y=385
+ def add(text,size=30,heading=False,color=navy,width=60,gap=12):
+  nonlocal y
+  for line in textwrap.wrap(text,width):elements.append((line,size,heading,color,y));y+=size+gap
+ add(e.name.upper(),64,True,width=32)
+ y+=20;add('CE SOIR, TU ES DES NÔTRES.',23,True,color='#896c2c')
+ add(u.get_full_name(),43,True,width=39);y+=16
+ date_y=y;y+=115
+ add('LE RENDEZ-VOUS',22,True,color=muted)
+ add(e.venue,34,True,width=47)
+ add(e.address,25,width=65,gap=10)
+ y+=20;tear_y=y;y+=55;qr_y=y;y+=500
+ security_y=y;y+=205
+ footer_y=y
+ footer=[]
  for text in [*MENTIONS,'Organisation : '+e.organizer_name,e.organizer_address,'Contact : '+e.organizer_contact]:
-  for line in textwrap.wrap(text,82):foot.append((line,footer_y));footer_y+=26
- height=max(1600,footer_y+60)
- img=Image.new('RGB',(1000,height),'#f7efd9');d=ImageDraw.Draw(img)
- d.rectangle((0,0,1000,190),fill='#152440')
- d.text((60,45),'GLORIEUX',font=font(62),fill='#cfad60')
- d.text((60,125),'BDE · VOTRE BILLET',font=font(25),fill='white')
- # Preserve the supplied badge via a circular crop during ticket composition.
- try:
-  source=Image.open(settings.BASE_DIR/'static/core/logo-source.png').convert('RGBA')
-  sx=source.width/942;sy=source.height/2048
-  badge=source.crop((int(160*sx),int(576*sy),int(782*sx),int(1198*sy))).resize((150,150))
-  mask=Image.new('L',(150,150));ImageDraw.Draw(mask).ellipse((0,0,149,149),fill=255)
-  img.paste(badge,(800,20),mask)
- except OSError:pass
- for line,size,pos in lines:d.text((60,pos),line,font=font(size),fill='#152440')
- qr=qrcode.make(settings.SITE_URL+'/q/'+ticket_token(ticket)+'/').convert('RGB').resize((420,420),Image.Resampling.NEAREST)
- img.paste(qr,(290,qr_y))
- d.text((60,qr_y+435),'Billet '+str(ticket.pk),font=font(18),fill='#152440')
- for line,pos in foot:d.text((60,pos),line,font=font(18),fill='#152440')
+  if not text or text=='Contact : ':continue
+  for line in textwrap.wrap(text,81):footer.append((line,y));y+=27
+ height=max(1920,y+95)
+ image=Image.new('RGB',(1080,height),navy);d=ImageDraw.Draw(image)
+ # Athletics-inspired header and a gold edition strip.
+ d.rectangle((0,0,1080,13),fill=gold)
+ d.text((65,55),'BDE GRAND LEBRUN / 2026—2027',font=font(25,True),fill=gold)
+ d.text((60,90),'GLORIEUX',font=font(112,True),fill=cream)
+ d.text((65,220),'TA SOIRÉE. TON PASS. TES SOUVENIRS.',font=font(24,True),fill=gold)
+ badge(image,830,58,180)
+ # Decorative flash, side accents and perforation marks are drawn as vector shapes.
+ for x in [775,800,825]:d.line((x,238,x+16,204),fill=gold,width=3)
+ d.rounded_rectangle((35,300,1045,height-38),radius=26,fill=cream)
+ d.rounded_rectangle((65,320,370,359),radius=5,fill=gold)
+ d.text((80,326),'PASS NOMINATIF / 1 ENTRÉE',font=font(22,True),fill=navy)
+ d.text((835,325),'ON SE VOIT LÀ-BAS !',font=font(17,True),fill=navy)
+ for text,size,heading,color,pos in elements:d.text((75,pos),text,font=font(size,heading),fill=color)
+ for x,label,value in [(75,'LA DATE',timezone.localtime(e.starts_at).strftime('%d.%m.%Y')),(445,'DÈS',timezone.localtime(e.starts_at).strftime('%H h %M')),(735,'PRIX PAYÉ',f'{ticket.line.price_cents/100:.2f} €'.replace('.',','))]:
+  d.text((x,date_y),label,font=font(19,True),fill=muted)
+  d.text((x,date_y+30),value,font=font(43,True),fill=navy)
+ for x in range(35,1045,25):d.line((x,tear_y,x+12,tear_y),fill='#adb0b6',width=2)
+ d.ellipse((15,tear_y-20,55,tear_y+20),fill=navy);d.ellipse((1025,tear_y-20,1065,tear_y+20),fill=navy)
+ qr=qrcode.QRCode(box_size=1,border=4,error_correction=qrcode.constants.ERROR_CORRECT_M)
+ qr.add_data(settings.SITE_URL+'/q/'+ticket_token(ticket)+'/');qr.make(fit=True)
+ qr.box_size=max(1,480//len(qr.get_matrix()))
+ qr_image=qr.make_image(fill_color=navy,back_color='white').convert('RGB')
+ d.rounded_rectangle((270,qr_y,810,qr_y+490),radius=15,fill='white')
+ image.paste(qr_image,((1080-qr_image.width)//2,qr_y+(490-qr_image.height)//2))
+ d.text((75,security_y+15),'RÉFÉRENCE UNIQUE',font=font(19,True),fill=muted)
+ d.text((75,security_y+45),ticket.reference,font=font(25,True),fill=navy)
+ d.text((75,security_y+90),'SIGNATURE HMAC-SHA-256 · AUTHENTICITÉ',font=font(18,True),fill=muted)
+ signature=ticket_token(ticket).rsplit('.',1)[-1]
+ d.text((75,security_y+120),signature[:32],font=font(22),fill=navy)
+ d.text((75,security_y+151),signature[32:],font=font(22),fill=navy)
+ d.line((75,footer_y-10,1005,footer_y-10),fill=gold,width=2)
+ for line,pos in footer:d.text((75,pos+12),line,font=font(20),fill='#475467')
+ d.text((75,height-82),'BILLETTERIE SNOOPUP.IO / LE QR NE DOIT PAS ÊTRE PARTAGÉ',font=font(18,True),fill='#896c2c')
  out=io.BytesIO()
- if fmt=='png':img.save(out,format='PNG')
+ if fmt=='png':image.save(out,format='PNG')
  else:
   from reportlab.lib.pagesizes import A4
-  width,page_height=A4;scale=min(width/1000,page_height/height)
-  c=canvas.Canvas(out,pagesize=A4);c.drawImage(ImageReader(img),(width-1000*scale)/2,(page_height-height*scale)/2,width=1000*scale,height=height*scale);c.showPage();c.save()
+  width,page_height=A4;scale=min(width/1080,page_height/height)
+  c=canvas.Canvas(out,pagesize=A4);c.drawImage(ImageReader(image),(width-1080*scale)/2,(page_height-height*scale)/2,width=1080*scale,height=height*scale);c.showPage();c.save()
  return out.getvalue()
 
 def render_social(event=None):

@@ -18,7 +18,7 @@ from .forms import RegisterForm,PreRegisterForm,DeviceForm,BuyForm
 from .services import issue_challenge,verify_challenge,pre_register,limited,events_for
 from .delivery import sms_ready
 from .payments import create_order,begin_checkout,reconcile_order
-from .tickets import resolve_ticket,scan_ticket,render_ticket
+from .tickets import resolve_ticket,scan_ticket,render_ticket,verify_qr_data
 
 def error_message(request,exc):messages.error(request,' '.join(exc.messages) if isinstance(exc,ValidationError) else 'Une erreur temporaire est survenue. Réessayez plus tard.')
 def home(request):return render(request,'core/home.html',{'events':Event.objects.filter(published=True,starts_at__gt=timezone.now())})
@@ -131,9 +131,10 @@ def payment_notification(request):
 
 @never_cache
 def public_scan(request,value):
- try:t=resolve_ticket(value)
+ try:data=verify_qr_data(value)
  except ValidationError:raise Http404()
- return redirect('event',slug=t.line.order.event.slug)
+ event=get_object_or_404(Event,pk=data['e'],published=True)
+ return redirect('event',slug=event.slug)
 
 @never_cache
 def ticket_download(request,token,fmt=None):
@@ -167,13 +168,23 @@ def scan(request):
  try:
   d=Device.objects.get(pk=request.session.get('device_id'),user=request.user)
   data=json.loads(request.body[:4096]);value=str(data.get('value',''))[:2048]
-  if len(value)==36:
-   from .tickets import ticket_token
-   manual=Ticket.objects.filter(pk=value).first()
-   if manual:value=ticket_token(manual)
+  reference=value[3:] if value.upper().startswith('GL-') else value
+  if len(reference)==36:
+   from decimal import Decimal,InvalidOperation
+   from .tickets import encoded_ticket_data
+   signature=str(data.get('signature','')).strip().lower()
+   if not signature or not str(data.get('price','')).strip():
+    return JsonResponse({'status':'unknown','message':'Le numéro seul ne permet pas de vérifier l’authenticité. Ajoutez le prix et la signature imprimés, ou scannez le QR complet.'})
+   try:
+    price=Decimal(str(data['price']).replace(',','.'))
+    if not price.is_finite() or price<0 or price>100000 or price*100!=(price*100).to_integral_value():raise ValueError()
+    payload={'r':'GL-'+reference.upper(),'e':int(data.get('event',0)),'p':int(price*100),'c':'EUR'}
+   except (InvalidOperation,ValueError):return JsonResponse({'status':'error','message':'Prix ou référence incorrects.'},status=400)
+   value='v1.'+encoded_ticket_data(payload)+'.'+signature
   result=scan_ticket(request.user,d,value,event_id=int(data.get('event',0)));return JsonResponse(result)
  except PermissionDenied:return JsonResponse({'status':'error','message':'Accès refusé : téléphone ou événement non autorisé.'},status=403)
- except (ValidationError,Device.DoesNotExist,ValueError,TypeError) as exc:return JsonResponse({'status':'error','message':'QR code invalide ou téléphone non enregistré.'},status=400)
+ except ValidationError as exc:return JsonResponse({'status':'invalid','message':' '.join(exc.messages)},status=400)
+ except (Device.DoesNotExist,ValueError,TypeError) as exc:return JsonResponse({'status':'error','message':'QR code illisible ou téléphone non enregistré.'},status=400)
 
 @login_required
 @never_cache

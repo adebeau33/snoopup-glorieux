@@ -348,3 +348,24 @@ Le formulaire de création de compte indique explicitement qu’un email de conf
 
 
 Organisateur communiqué : **BDE Grand Lebrun — 164 avenue Charles de Gaulle, 33200 Bordeaux-Caudéran**. Adresse de l’établissement vérifiée sur https://grandlebrun.com/reglements-et-tarifs/ . Conserver cette adresse dans un champ distinct de l’adresse du lieu de la soirée ; affichage sur la page événement et les billets.
+
+
+## 21. Exceptions de test et approbation des administrateurs
+
+Deux exceptions exactes à la règle du domaine scolaire sont autorisées : `alban.debeaupuis@gmail.com` (superadmin propriétaire existant) et `alban@audiopro.fr`. Aucun autre utilisateur de gmail.com ou audiopro.fr n’est accepté par cette exception. La liste est configurable côté serveur et ne dispense pas des deux vérifications pour réserver.
+
+Aucune option ni demande de rôle administrateur n’apparaît à l’inscription. Tous les nouveaux comptes sont créés comme étudiants. Le superadmin peut ensuite sélectionner un utilisateur inscrit et lui accorder le rôle administrateur via une action réservée et journalisée. Un administrateur ne peut pas attribuer ce rôle. Aucun compte alban@audiopro.fr n’est créé sans ses coordonnées obligatoires ; l’adresse est autorisée à s’inscrire.
+
+
+## 22. Référence, signature imprimée et distinction des billets inconnus
+
+Chaque billet dispose d’une référence unique `GL-<UUID>` et d’une signature HMAC-SHA-256 de 64 caractères hexadécimaux, imprimées sur le PNG et le PDF. La référence, l’événement, le prix payé en centimes et la devise font partie des données signées. Le QR contient ces données sous forme compacte et versionnée, ainsi que leur signature ; il ne contient jamais la clé secrète de signature.
+
+Vérifier la signature indépendamment de la base, avant de chercher la référence :
+- Signature invalide : billet falsifié ou altéré, refus (rouge).
+- Signature valide mais référence absente ou données incohérentes : billet signé par le système mais non retrouvé/conforme dans la base, contrôle organisateur requis (orange), aucune entrée automatique. Une signature valide ne prouve pas un paiement.
+- Signature valide et référence connue : vérifier soirée attendue, paiement, annulation et absence de passage avant acceptation (vert).
+
+En saisie manuelle, la référence seule n’atteste pas l’authenticité : saisir également le prix payé et la signature imprimés, avec l’événement sélectionné, ou utiliser le lien complet du QR. Les mêmes vérifications s’appliquent ensuite. Copier référence et signature reste une copie du même billet ; le contrôle d’usage unique et d’identité reste nécessaire.
+
+Le billet est un pass graphique marine/or/crème avec logo, titres de style universitaire, éléments graphiques et zone QR contrastée, typographies locales, référence et signature lisibles. Sa hauteur s’adapte aux textes pour ne tronquer ni le QR ni les mentions. Un aperçu fictif est générable sans enregistrement et avec une clé de test distincte, marqué « APERÇU NON VALABLE » ; le tarif illustratif de cet aperçu n’est pas le tarif annoncé de la soirée.

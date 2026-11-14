@@ -6,3 +6,5 @@
 .brand-link{display:flex;align-items:center;gap:12px}.brand .brand-word{font:800 30px/1 'Barlow Condensed',Impact,sans-serif;letter-spacing:1px;margin:0}.brand .brand-word>span{font-family:'DM Sans',sans-serif;font-size:9px;letter-spacing:2px;margin-top:7px}.brand .nav-logo{width:48px;height:48px;display:block;margin:0;flex-shrink:0}.brand .nav-logo img{display:block;margin:0}@media(max-width:767px){.brand .brand-word{font-size:23px}.brand .brand-word>span{font-size:7px}.brand .nav-logo{width:36px;height:36px}.brand-link{gap:8px}}
 
 @media(max-width:767px){.section>.row{--bs-gutter-x:1.5rem}}
+
+.scanner-result.unknown{background:#fff0cf;border-color:#b17a10;color:#62400a}

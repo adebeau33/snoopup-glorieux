@@ -48,3 +48,5 @@ TICKET_SECRET=os.getenv('TICKET_SECRET',SECRET_KEY)
 EMAIL_BACKEND='core.email_backend.SESBackend'
 DEFAULT_FROM_EMAIL=FROM_EMAIL
 PASSWORD_RESET_TIMEOUT=1800
+
+TEST_ALLOWED_EMAILS={x.strip().lower() for x in os.getenv('TEST_ALLOWED_EMAILS','alban.debeaupuis@gmail.com,alban@audiopro.fr').split(',') if x.strip()}

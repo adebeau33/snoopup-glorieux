@@ -12,6 +12,10 @@ class User(AbstractUser):
  role=models.CharField(max_length=16,choices=ROLE_CHOICES,default='student')
  email_verified=models.BooleanField(default=False)
  phone_verified=models.BooleanField(default=False)
+ def save(self,*args,**kwargs):
+  if not self.email:self.email=None
+  if not self.phone:self.phone=None
+  super().save(*args,**kwargs)
  @property
  def verified(self):return self.email_verified and self.phone_verified
 
@@ -89,6 +93,8 @@ class OrderLine(models.Model):
  registration=models.ForeignKey(Registration,on_delete=models.PROTECT)
  price_cents=models.PositiveIntegerField()
  held=models.BooleanField(default=True)
+ @property
+ def price(self):return f'{self.price_cents/100:.2f}'
  class Meta:constraints=[models.UniqueConstraint(fields=['registration'],condition=Q(held=True),name='unique_held_registration')]
 
 class Ticket(models.Model):
@@ -99,6 +105,8 @@ class Ticket(models.Model):
  used_at=models.DateTimeField(null=True,blank=True)
  used_by=models.ForeignKey(User,on_delete=models.PROTECT,null=True,blank=True,related_name='validated_tickets')
  created_at=models.DateTimeField(auto_now_add=True)
+ @property
+ def reference(self):return 'GL-'+str(self.pk).upper()
  class Meta:verbose_name='billet'
 
 class Device(models.Model):

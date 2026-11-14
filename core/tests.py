@@ -232,4 +232,87 @@ class LongTicketTests(TestCase):
   ticket=self.paid_ticket()
   image=Image.open(io.BytesIO(render_ticket(ticket,'png')))
   self.assertGreater(image.height,1800)
-  self.assertEqual(image.width,1000)
+  self.assertEqual(image.width,1080)
+
+class AdminRequestTests(TestCase):
+ def test_exact_test_addresses_only(self):
+  for email in ['alban.debeaupuis@gmail.com','alban@audiopro.fr']:self.assertEqual(school_email(email),email)
+  for email in ['autre@gmail.com','autre@audiopro.fr','alban@audiopro.fr.evil.com']:
+   with self.assertRaises(ValidationError):school_email(email)
+ def test_signup_has_no_admin_option_or_rights(self):
+  from core.forms import RegisterForm
+  form=RegisterForm({'first_name':'Alban','last_name':'Test','email':'alban@audiopro.fr','phone':'0612345678','password1':'Secret!Test2026abcdef','password2':'Secret!Test2026abcdef'})
+  self.assertTrue(form.is_valid(),form.errors)
+  self.assertNotIn('admin_requested',form.fields)
+  u=form.save();self.assertEqual(u.role,'student');self.assertFalse(u.is_staff)
+ def test_superadmin_can_approve_request(self):
+  from django.contrib import admin
+  from django.test import RequestFactory
+  from core.admin import Users
+  u=User.objects.create_user(username='pending')
+  root=User.objects.create_superuser(username='super',email='super@example.com',password='Test!20261234')
+  request=RequestFactory().post('/admin/');request.user=root
+  Users(User,admin.site).approve_admins(request,User.objects.filter(pk=u.pk))
+  u.refresh_from_db();self.assertEqual(u.role,'admin');self.assertTrue(u.is_staff)
+ def test_admin_cannot_approve_request(self):
+  from django.contrib import admin
+  from django.test import RequestFactory
+  from core.admin import Users
+  u=User.objects.create_user(username='pending')
+  a=User.objects.create_user(username='ordinary',role='admin',is_staff=True)
+  request=RequestFactory().post('/admin/');request.user=a
+  with self.assertRaises(PermissionDenied):Users(User,admin.site).approve_admins(request,User.objects.filter(pk=u.pk))
+
+class AuthenticityTests(TestCase):
+ setUp=PlatformTests.setUp
+ reg=PlatformTests.reg
+ paid_ticket=PlatformTests.paid_ticket
+ def test_signature_can_be_checked_without_database(self):
+  from core.tickets import verify_qr_data
+  ticket=self.paid_ticket();value=ticket_token(ticket);reference=ticket.reference;ticket.delete()
+  with self.assertNumQueries(0):data=verify_qr_data(value)
+  self.assertEqual(data['r'],reference)
+ def test_authentic_unknown_ticket_is_distinct(self):
+  ticket=self.paid_ticket();value=ticket_token(ticket);ticket.delete()
+  v=User.objects.create_user(username='unknown-validator',role='validator');Assignment.objects.create(user=v,event=self.e)
+  d=Device.objects.create(user=v,approved=True,expires_at=timezone.now()+timedelta(hours=2))
+  result=scan_ticket(v,d,value,event_id=self.e.pk)
+  self.assertEqual(result['status'],'unknown')
+  self.assertEqual(Ticket.objects.filter(used_at__isnull=False).count(),0)
+ def test_forged_unknown_reference_rejected_before_lookup(self):
+  import json,base64,uuid
+  from core.tickets import verify_qr_data
+  ticket=self.paid_ticket();value=ticket_token(ticket);version,payload,signature=value.split('.')
+  data=json.loads(base64.urlsafe_b64decode(payload+'='*(-len(payload)%4)))
+  data['r']='GL-'+str(uuid.uuid4()).upper()
+  forged=base64.urlsafe_b64encode(json.dumps(data,sort_keys=True,separators=(',',':')).encode()).decode().rstrip('=')
+  with self.assertNumQueries(0):
+   with self.assertRaises(ValidationError) as caught:verify_qr_data(version+'.'+forged+'.'+signature)
+  self.assertEqual(caught.exception.code,'signature_invalid')
+
+class ManualAuthenticityTests(TestCase):
+ setUp=PlatformTests.setUp
+ reg=PlatformTests.reg
+ paid_ticket=PlatformTests.paid_ticket
+ def test_manual_reference_requires_and_verifies_signature(self):
+  import json
+  ticket=self.paid_ticket();v=User.objects.create_user(username='manual-validator',role='validator');Assignment.objects.create(user=v,event=self.e)
+  device=Device.objects.create(user=v,approved=True,expires_at=timezone.now()+timedelta(hours=2))
+  self.client.force_login(v);session=self.client.session;session['device_id']=str(device.pk);session.save()
+  body={'event':self.e.pk,'value':ticket.reference}
+  response=self.client.post('/validation/scan/',json.dumps(body),content_type='application/json')
+  self.assertEqual(response.json()['status'],'unknown');ticket.refresh_from_db();self.assertIsNone(ticket.used_at)
+  body.update(price='15,00',signature='0'*64)
+  response=self.client.post('/validation/scan/',json.dumps(body),content_type='application/json')
+  self.assertEqual(response.status_code,400);self.assertEqual(response.json()['status'],'invalid')
+  body['signature']=ticket_token(ticket).rsplit('.',1)[-1]
+  response=self.client.post('/validation/scan/',json.dumps(body),content_type='application/json')
+  self.assertEqual(response.json()['status'],'accepted')
+
+class MoneyDisplayTests(TestCase):
+ setUp=PlatformTests.setUp
+ reg=PlatformTests.reg
+ def test_order_displays_cents_without_rounding(self):
+  self.e.price_cents=1550;self.e.save();order=create_order(self.u,self.e,[self.reg().pk])
+  self.client.force_login(self.u)
+  self.assertContains(self.client.get('/commande/'+str(order.pk)+'/'),'15.50 €')

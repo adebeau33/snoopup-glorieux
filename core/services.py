@@ -21,8 +21,9 @@ def normalize_phone(value):
  except Exception:raise ValidationError('Numéro de téléphone invalide.')
 
 def school_email(value):
+ if not isinstance(value,str):raise ValidationError('Adresse email obligatoire.')
  value=value.strip().lower();validate_email(value)
- if value.rsplit('@',1)[-1]!='grandlebrun.com':raise ValidationError('Une adresse @grandlebrun.com est obligatoire.')
+ if value.rsplit('@',1)[-1]!='grandlebrun.com' and value not in settings.TEST_ALLOWED_EMAILS:raise ValidationError('Une adresse @grandlebrun.com est obligatoire.')
  return value
 
 def limited(key,maximum=10,seconds=3600):
@@ -36,6 +37,7 @@ def limited(key,maximum=10,seconds=3600):
 
 def issue_challenge(user,kind):
  if kind not in ['sms','email']:raise ValidationError('Vérification inconnue.')
+ if kind=='sms' and not user.phone:raise ValidationError('Renseignez un numéro de téléphone avant de demander un code SMS.')
  now=timezone.now()
  with transaction.atomic():
   User.objects.select_for_update().get(pk=user.pk)

@@ -16,3 +16,10 @@
 
 - Recette finale : 36 tests réussis, contrôles HTTP publics et authentifiés superadmin réussis, captures mobiles à 390 px vérifiées. Service web observé à environ 44 Mo au repos, plafond192 Mo. Deux avertissements Django facultatifs HSTS sous-domaines/preload restent volontairement non activés.
 - Première soirée publiée au 21/11/2026 à 22 h, Death before sunlight à Bordeaux, ventes fermées ; organisateur BDE Grand Lebrun, adresse scolaire séparée du lieu.
+
+- Dernière demande : exceptions email exactes Gmail/Audiopro conservant double vérification ; aucune option administrateur à l’inscription. Action d’attribution réservée au superadmin après inscription. Tests de non-élévation et d’approbation ajoutés.
+
+- Billets graphiques avec logo, référence GL-UUID et HMAC imprimés. QR v1 autoportant (ref, événement, prix, devise), vérification sans base avant recherche. Référence authentique absente : orange sans consommation ; signature invalide : rouge. Saisie manuelle exige prix + signature.
+- 44 tests réussis avec régressions signature inconnue authentique/fausse et contrôle manuel ; revue ciblée indépendante sans défaut important. Aperçu fictif avec clé distincte et filigrane non valable. Lecture du QR contrôlée par un décodeur indépendant, original et version540px.
+
+- Vérification finale après format QR autonome : 45 tests réussis ; charge2000/8 en16,98s, p95 246ms, zéro double entrée. Version déployée après ces vérifications.

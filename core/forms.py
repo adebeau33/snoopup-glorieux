@@ -4,7 +4,7 @@ from .models import User,SchoolClass
 from .services import school_email,normalize_phone,DECLARATIONS
 
 class RegisterForm(UserCreationForm):
- email=forms.EmailField(label='Email scolaire',help_text='Uniquement @grandlebrun.com. Un email de confirmation vous sera envoyé sur cette boîte mail.')
+ email=forms.EmailField(label='Email scolaire',help_text='Adresse @grandlebrun.com ou adresse de test expressément autorisée. Un email de confirmation vous sera envoyé sur cette boîte mail.')
  phone=forms.CharField(label='Téléphone portable',help_text='Votre numéro personnel, pour le code SMS et votre billet.')
  first_name=forms.CharField(label='Prénom',max_length=150)
  last_name=forms.CharField(label='Nom',max_length=150)
