@@ -1,0 +1,8 @@
+[Unit]
+Description=Glorieux traitement des envois chaque minute
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=20
+Unit=glorieux-jobs.service
+[Install]
+WantedBy=timers.target

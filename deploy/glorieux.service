@@ -1,0 +1,23 @@
+[Unit]
+Description=Glorieux billetterie web
+After=network.target
+[Service]
+User=glorieux
+Group=glorieux
+WorkingDirectory=/opt/snoopup-glorieux
+EnvironmentFile=/etc/glorieux/glorieux.env
+ExecStart=/opt/snoopup-glorieux/.venv/bin/gunicorn glorieux.wsgi:application --bind 127.0.0.1:8017 --workers 1 --threads 4 --timeout 45 --max-requests 1000 --max-requests-jitter 100
+Restart=on-failure
+RestartSec=5
+MemoryHigh=160M
+MemoryMax=192M
+CPUQuota=60%
+TasksMax=32
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/glorieux
+UMask=0077
+[Install]
+WantedBy=multi-user.target

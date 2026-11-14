@@ -1,0 +1,8 @@
+[Unit]
+Description=Glorieux sauvegarde locale SQLite
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3.12 /opt/snoopup-glorieux/deploy/backup.py
+MemoryMax=64M
+Nice=15
+UMask=0077
