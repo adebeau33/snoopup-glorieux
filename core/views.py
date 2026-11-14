@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from urllib.parse import urlencode
 from django.conf import settings
 from django.core import signing
 from django.contrib import messages
@@ -10,6 +11,7 @@ from django.db import transaction
 from django.db.models import Count,Sum,Q,Max
 from django.http import JsonResponse,HttpResponse,Http404
 from django.shortcuts import render,redirect,get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -19,7 +21,7 @@ from .forms import RegisterForm,EventRegistrationForm,DeviceForm,BuyForm
 from .services import issue_challenge,verify_challenge,pre_register,limited,events_for
 from .delivery import ticket_sms_ready
 from .payments import create_order,create_test_checkout_order,begin_checkout,reconcile_order
-from .tickets import resolve_ticket,scan_ticket,render_ticket,verify_qr_data
+from .tickets import resolve_ticket,scan_ticket,render_ticket,verify_qr_data,manually_validate_ticket
 
 def error_message(request,exc):messages.error(request,' '.join(exc.messages) if isinstance(exc,ValidationError) else 'Une erreur temporaire est survenue. Réessayez plus tard.')
 def home(request):return render(request,'core/home.html',{'events':Event.objects.filter(published=True,starts_at__gt=timezone.now())})
@@ -223,12 +225,47 @@ def validation(request):
   Audit.objects.create(actor=u,device=d,action='autorisation_telephone_superadmin')
   messages.success(request,'Ton téléphone est autorisé pour 12 heures. Tu peux démarrer la caméra.')
   return redirect('validation')
+ if request.method=='POST' and d and request.POST.get('action')=='manual_validate':
+  event=get_object_or_404(events_for(u),pk=request.POST.get('event'))
+  registration=get_object_or_404(Registration.objects.select_related('user'),pk=request.POST.get('registration'),event=event)
+  try:
+   result=manually_validate_ticket(u,d,registration,event)
+   if result['status']=='accepted':messages.success(request,f"Entrée validée à {timezone.localtime(result['entry_at']).strftime('%H:%M:%S')} pour {registration.user.get_full_name()}.")
+   elif result['status']=='used':messages.warning(request,f"Déjà présent depuis {timezone.localtime(result['entry_at']).strftime('%H:%M:%S')} : {registration.user.get_full_name()}.")
+   else:messages.error(request,'Aucun billet payé et actif ne permet de valider cette entrée.')
+  except PermissionDenied as exc:messages.error(request,str(exc))
+  query=urlencode({'event':event.pk,'q':request.POST.get('q','')[:100]})
+  return redirect(reverse('validation')+'?'+query)
  if request.method=='POST' and not d and form.is_valid():
   if limited('devices:'+str(u.pk),5):messages.error(request,'Trop de demandes d’appareils.')
   else:
    d=Device.objects.create(user=u,name=form.cleaned_data['name'],expires_at=timezone.now()+timedelta(hours=12))
    request.session['device_id']=str(d.pk);return redirect('validation')
- return render(request,'core/validation.html',{'device':d,'form':form,'authorized':d and d.approved and d.expires_at>timezone.now(),'validation_events':events_for(u)})
+ authorized=bool(d and d.approved and d.expires_at>timezone.now())
+ validation_events=events_for(u)
+ selected_event=None;search_query='';search_results=[]
+ if authorized:
+  event_id=request.POST.get('event') or request.GET.get('event')
+  selected_event=validation_events.filter(pk=event_id).first() if event_id else validation_events.first()
+  search_query=(request.POST.get('q') if request.method=='POST' else request.GET.get('q','')).strip()[:100]
+  if selected_event and search_query:
+   phone_digits=''.join(char for char in search_query if char.isdigit())
+   phone_terms={phone_digits} if phone_digits else set()
+   if phone_digits.startswith('0'):phone_terms.add('+33'+phone_digits[1:])
+   elif phone_digits.startswith('33'):phone_terms.add('+'+phone_digits)
+   participant_query=Q(user__first_name__icontains=search_query)|Q(user__last_name__icontains=search_query)|Q(user__email__icontains=search_query)
+   for phone_term in phone_terms:participant_query|=Q(user__phone__icontains=phone_term)
+   registrations=Registration.objects.filter(event=selected_event).filter(participant_query).select_related('user').order_by('user__last_name','user__first_name')[:30]
+   order_status='test' if selected_event.is_test else 'paid'
+   for registration in registrations:
+    tickets=Ticket.objects.filter(line__registration=registration,line__order__event=selected_event,is_test=selected_event.is_test,active=True,line__order__status=order_status).order_by('-created_at')
+    used=tickets.filter(used_at__isnull=False).order_by('-used_at').first()
+    ticket=tickets.first()
+    if used:status='Présent';entry_at=used.used_at;can_validate=False
+    elif ticket:status='Billet valide';entry_at=None;can_validate=True
+    else:status='Aucun billet valide';entry_at=None;can_validate=False
+    search_results.append({'registration':registration,'status':status,'entry_at':entry_at,'can_validate':can_validate})
+ return render(request,'core/validation.html',{'device':d,'form':form,'authorized':authorized,'validation_events':validation_events,'selected_event':selected_event,'search_query':search_query,'search_results':search_results})
 
 @login_required
 @require_POST
@@ -330,17 +367,22 @@ def participants_pdf(request):
  from reportlab.lib.pagesizes import A4,landscape
  if not (request.user.is_superuser or request.user.role in ['admin','organizer']):raise PermissionDenied()
  event=get_object_or_404(events_for(request.user),pk=request.GET.get('event'))
+ list_type=request.GET.get('type','registered')
+ if list_type not in ['registered','present']:raise Http404()
  rows=annotated_participants(event).order_by('user__last_name','user__first_name')
+ if list_type=='present':rows=rows.filter(entry_at__isnull=False).order_by('entry_at','user__last_name')
  out=io.BytesIO();styles=getSampleStyleSheet();story=[]
- title=('TEST — ' if event.is_test else '')+event.name+' — liste des participants'
+ title=('TEST — ' if event.is_test else '')+event.name+(' — présents' if list_type=='present' else ' — inscrits')
  story.append(Paragraph(escape(title),styles['Heading1']));story.append(Paragraph('Généré le '+timezone.localtime().strftime('%d/%m/%Y à %H:%M:%S'),styles['Normal']));story.append(Spacer(1,15))
- data=[['Nom / prénom','Billet','Date et heure d’entrée']]
+ data=[['Nom / prénom','Email','Téléphone','Billet']+(['Heure d’entrée'] if list_type=='present' else [])]
  for row in rows:
-  values=[row.user.get_full_name(),'Payé' if row.paid_count else ('TEST' if row.test_count else 'Préinscrit'),timezone.localtime(row.entry_at).strftime('%d/%m/%Y %H:%M:%S') if row.entry_at else 'Non entré']
+  values=[row.user.get_full_name(),row.user.email or '',row.user.phone or '',('TEST' if row.test_count else 'Payé') if row.paid_count or row.test_count else 'Inscrit']
+  if list_type=='present':values.append(timezone.localtime(row.entry_at).strftime('%d/%m/%Y %H:%M:%S'))
   data.append([Paragraph(escape(str(value)),styles['Normal']) for value in values])
- table=Table(data,colWidths=[300,140,260],repeatRows=1)
+ widths=[180,220,120,100]+([140] if list_type=='present' else [])
+ table=Table(data,colWidths=widths,repeatRows=1)
  table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#152440')),('TEXTCOLOR',(0,0),(-1,0),colors.white),('BACKGROUND',(0,1),(-1,-1),colors.HexColor('#f6f1e6')),('GRID',(0,0),(-1,-1),.3,colors.HexColor('#c7c7c7')),('VALIGN',(0,0),(-1,-1),'TOP'),('TOPPADDING',(0,0),(-1,-1),8),('BOTTOMPADDING',(0,0),(-1,-1),8)]));story.append(table)
  def page_number(c,doc):c.setFont('Helvetica',9);c.drawRightString(800,20,'Glorieux — page '+str(doc.page))
  SimpleDocTemplate(out,pagesize=landscape(A4),rightMargin=40,leftMargin=40,topMargin=35,bottomMargin=35).build(story,onFirstPage=page_number,onLaterPages=page_number)
- Audit.objects.create(actor=request.user,event=event,action='export_pdf_participants')
- response=HttpResponse(out.getvalue(),content_type='application/pdf');response['Content-Disposition']='attachment; filename="participants.pdf"';return response
+ Audit.objects.create(actor=request.user,event=event,action='export_pdf_'+list_type)
+ response=HttpResponse(out.getvalue(),content_type='application/pdf');response['Content-Disposition']=f'attachment; filename="{list_type}-{event.slug}.pdf"';return response

@@ -1,1 +1,43 @@
-{% extends 'base.html' %}{% load static %}{% block content %}<div class="form-shell"><p class="eyebrow">ÉQUIPE D’ACCUEIL</p><h1>CONTRÔLE DES ENTRÉES.</h1>{% if not device %}<form method="post" class="panel fields">{% csrf_token %}{{ form.as_p }}<p class="small muted">L’organisation doit approuver cet appareil avant le premier scan. L’autorisation expire après 12 heures.</p><button class="btn btn-navy">Enregistrer ce téléphone</button></form>{% elif not authorized %}<div class="panel"><h2>TÉLÉPHONE EN ATTENTE OU EXPIRÉ.</h2><p>{{ device.name }} · demande l’approbation de l’organisation, puis actualise cette page.</p>{% if user.is_superuser %}<form method="post">{% csrf_token %}<button name="action" value="authorize_self" class="btn btn-gold">Autoriser mon téléphone pour 12 h</button></form>{% else %}<a href="{% url 'validation' %}" class="btn btn-navy">Actualiser après autorisation</a>{% endif %}</div>{% else %}<label for="scan-event" class="small mb-2">Soirée contrôlée</label><select id="scan-event" class="form-select mb-3">{% for e in validation_events %}<option value="{{ e.pk }}">{% if e.is_test %}[TEST] {% endif %}{{ e.name }} · {{ e.starts_at|date:"d/m/Y" }}</option>{% endfor %}</select><label for="scan-mode" class="small mb-2">Mode de contrôle</label><select id="scan-mode" class="form-select mb-3"><option value="entry">Entrée automatique — marque la personne présente</option><option value="consult">Consultation — ne consomme pas le billet</option></select><button type="button" id="enable-sound" class="btn btn-outline-navy w-100 mb-3">Activer / tester le son</button><div id="reader"></div><button type="button" id="enable-bluetooth" class="btn btn-outline-navy w-100 mt-3">Utiliser un lecteur Bluetooth</button><div class="scanner-result mt-4" id="scan-result" role="status" aria-live="assertive">Prêt. Démarre la caméra puis cadre un QR code.</div><button id="next-scan" type="button" class="btn btn-gold w-100 mt-3" hidden>Scanner le billet suivant</button><form id="manual-scan" class="fields panel mt-4">{% csrf_token %}<label for="manual-code">Code QR scanné ou saisi par le lecteur Bluetooth</label><input id="manual-code" name="value" required autocomplete="off"><p class="helptext mt-3">Le lecteur Bluetooth saisit le code comme un clavier. Active le champ puis scanne le QR.</p><button class="btn btn-outline-navy w-100 mt-3">Contrôler manuellement</button></form><p class="small muted mt-3">Une connexion Internet est nécessaire. En cas d’erreur réseau, vérifie l’état du billet avant de laisser entrer.</p>{% endif %}</div>{% if authorized %}<div id="scan-overlay" class="scan-overlay" role="alertdialog" aria-modal="true" aria-labelledby="scan-title" tabindex="-1" hidden><div class="scan-overlay-card"><p id="scan-kind" class="eyebrow"></p><h2 id="scan-title">Vérification…</h2><p id="scan-welcome"></p><p id="scan-person"></p><p id="scan-detail"></p><p id="scan-reference" class="small"></p><button type="button" id="scan-continue" class="btn btn-navy w-100" disabled>Appuie sur l’écran pour scanner le suivant</button></div></div>{% endif %}{% endblock %}{% block scripts %}{% if authorized %}<script src="{% static 'core/html5-qrcode.min.js' %}"></script><script src="{% static 'core/scanner.js' %}?v=20261114-4"></script>{% endif %}{% endblock %}
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+<div class="form-shell wide">
+  <p class="eyebrow">ÉQUIPE D’ACCUEIL</p>
+  <h1>CONTRÔLE DES ENTRÉES.</h1>
+  {% if not device %}
+    <form method="post" class="panel fields">{% csrf_token %}{{ form.as_p }}<p class="small muted">L’organisation doit approuver cet appareil avant le premier scan. L’autorisation expire après 12 heures.</p><button class="btn btn-navy">Enregistrer ce téléphone</button></form>
+  {% elif not authorized %}
+    <div class="panel"><h2>TÉLÉPHONE EN ATTENTE OU EXPIRÉ.</h2><p>{{ device.name }} · demande l’approbation de l’organisation, puis actualise cette page.</p>{% if user.is_superuser %}<form method="post">{% csrf_token %}<button name="action" value="authorize_self" class="btn btn-gold">Autoriser mon téléphone pour 12 h</button></form>{% else %}<a href="{% url 'validation' %}" class="btn btn-navy">Actualiser après autorisation</a>{% endif %}</div>
+  {% else %}
+    <form method="get" class="panel fields mb-4">
+      <label for="scan-event">Soirée contrôlée</label>
+      <select id="scan-event" name="event" class="form-select">{% for e in validation_events %}<option value="{{ e.pk }}" {% if selected_event.pk == e.pk %}selected{% endif %}>{% if e.is_test %}[TEST] {% endif %}{{ e.name }} · {{ e.starts_at|date:"d/m/Y" }}</option>{% endfor %}</select>
+      <label for="participant-search">Rechercher un élève</label>
+      <div class="d-flex gap-2"><input id="participant-search" class="form-control" name="q" value="{{ search_query }}" placeholder="Nom, prénom, email ou téléphone" autocomplete="off"><button class="btn btn-navy">Rechercher</button></div>
+      <p class="small muted mb-0">La recherche porte sur les inscrits à la soirée choisie. Jusqu’à 30 résultats sont affichés.</p>
+    </form>
+
+    {% if search_query %}
+      <section class="mb-4" aria-live="polite"><h2>RÉSULTATS.</h2>
+        {% for result in search_results %}
+          <article class="panel mb-3">
+            <div class="d-flex justify-content-between gap-3 flex-wrap"><div><h3>{{ result.registration.user.get_full_name }}</h3><p class="small muted mb-1">{{ result.registration.user.email }} · {{ result.registration.user.phone }}</p></div><div><strong>{{ result.status }}</strong>{% if result.entry_at %}<br><span class="small">Entrée : {{ result.entry_at|date:"d/m/Y H:i:s" }}</span>{% endif %}</div></div>
+            {% if result.can_validate %}<form method="post" class="mt-3">{% csrf_token %}<input type="hidden" name="action" value="manual_validate"><input type="hidden" name="event" value="{{ selected_event.pk }}"><input type="hidden" name="registration" value="{{ result.registration.pk }}"><input type="hidden" name="q" value="{{ search_query }}"><button class="btn btn-gold w-100">Confirmer l’identité et valider l’entrée</button><p class="small muted mt-2 mb-0">À utiliser après avoir contrôlé la personne et sa pièce d’identité. L’heure sera ajoutée aux exports de présents.</p></form>{% endif %}
+          </article>
+        {% empty %}<div class="empty">Aucun inscrit trouvé pour « {{ search_query }} ».</div>{% endfor %}
+      </section>
+    {% endif %}
+
+    <label for="scan-mode" class="small mb-2">Mode de contrôle par QR</label>
+    <select id="scan-mode" class="form-select mb-3"><option value="entry">Entrée automatique — marque la personne présente</option><option value="consult">Consultation — ne consomme pas le billet</option></select>
+    <button type="button" id="enable-sound" class="btn btn-outline-navy w-100 mb-3">Activer / tester le son</button><div id="reader"></div>
+    <button type="button" id="enable-bluetooth" class="btn btn-outline-navy w-100 mt-3">Utiliser un lecteur Bluetooth</button>
+    <div class="scanner-result mt-4" id="scan-result" role="status" aria-live="assertive">Prêt. Démarre la caméra puis cadre un QR code.</div>
+    <button id="next-scan" type="button" class="btn btn-gold w-100 mt-3" hidden>Scanner le billet suivant</button>
+    <form id="manual-scan" class="fields panel mt-4">{% csrf_token %}<label for="manual-code">Code QR scanné ou saisi par le lecteur Bluetooth</label><input id="manual-code" name="value" required autocomplete="off"><p class="helptext mt-3">Le lecteur Bluetooth saisit le code comme un clavier. Active le champ puis scanne le QR.</p><button class="btn btn-outline-navy w-100 mt-3">Contrôler manuellement</button></form>
+    <p class="small muted mt-3">Une connexion Internet est nécessaire. En cas d’erreur réseau, vérifie l’état du billet avant de laisser entrer.</p>
+  {% endif %}
+</div>
+{% if authorized %}<div id="scan-overlay" class="scan-overlay" role="alertdialog" aria-modal="true" aria-labelledby="scan-title" tabindex="-1" hidden><div class="scan-overlay-card"><p id="scan-kind" class="eyebrow"></p><h2 id="scan-title">Vérification…</h2><p id="scan-welcome"></p><p id="scan-person"></p><p id="scan-detail"></p><p id="scan-reference" class="small"></p><button type="button" id="scan-continue" class="btn btn-navy w-100" disabled>Appuie sur l’écran pour scanner le suivant</button></div></div>{% endif %}
+{% endblock %}
+{% block scripts %}{% if authorized %}<script src="{% static 'core/html5-qrcode.min.js' %}"></script><script src="{% static 'core/scanner.js' %}?v=20261115-1"></script>{% endif %}{% endblock %}

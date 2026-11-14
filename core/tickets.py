@@ -113,6 +113,30 @@ def scan_ticket(user,device,value,event_id=None,mode='entry'):
  if result['status'] in ['accepted','valid']:result['message']='Billet valide, bienvenue '+participant.first_name+' !'
  return result
 
+def manually_validate_ticket(user,device,registration,event):
+ """Record an entry after an authorized operator matches the participant in person."""
+ if not user.is_active or not (user.is_superuser or user.role in ['admin','organizer','validator']):raise PermissionDenied()
+ d=Device.objects.filter(pk=device.pk,user=user,approved=True,expires_at__gt=timezone.now()).first()
+ if not d:raise PermissionDenied('Téléphone non autorisé ou autorisation expirée.')
+ if not (user.is_superuser or user.role=='admin' or Assignment.objects.filter(user=user,event=event).exists()):raise PermissionDenied('Vous n’êtes pas affecté à cet événement.')
+ if registration.event_id!=event.pk:raise PermissionDenied('Cette inscription appartient à une autre soirée.')
+ expected='test' if event.is_test else 'paid'
+ with transaction.atomic():
+  tickets=list(Ticket.objects.select_for_update().filter(line__registration=registration,line__order__event=event,is_test=event.is_test,active=True,line__order__status=expected).order_by('-created_at'))
+  used=next((ticket for ticket in tickets if ticket.used_at),None)
+  if used:
+   result={'status':'used','ticket':used,'entry_at':used.used_at}
+  elif tickets:
+   ticket=tickets[0];entry_at=timezone.now()
+   changed=Ticket.objects.filter(pk=ticket.pk,active=True,used_at__isnull=True,line__order__status=expected).update(used_at=entry_at,used_by=user)
+   if changed:
+    ticket.used_at=entry_at;result={'status':'accepted','ticket':ticket,'entry_at':entry_at}
+   else:
+    ticket.refresh_from_db();result={'status':'used','ticket':ticket,'entry_at':ticket.used_at}
+  else:result={'status':'invalid','ticket':None,'entry_at':None}
+  Audit.objects.create(actor=user,device=d,event=event,action='manual_entry_'+result['status'],object_id=str(result['ticket'].pk) if result['ticket'] else str(registration.pk))
+ return result
+
 ADMISSION='Merci de présenter une pièce d’identité à l’entrée afin de permettre la vérification de votre identité. Cette soirée privée est réservée aux membres de l’établissement Sainte-Marie Grand Lebrun munis d’un billet nominatif valide. Toute personne sans billet valide ou extérieure à l’établissement se verra refuser l’accès.'
 MENTIONS=[ADMISSION,'Billet personnel — une seule entrée. Ne partagez pas ce QR code.','Ne pas déposer sur la voie publique.','L’abus d’alcool est dangereux pour la santé. À consommer avec modération.','Prévoyez votre retour : désignez un SAM qui ne boit pas.','Billet émis via Snoopup.io, prestataire technique de billetterie.','Snoopup.io n’intervient pas dans l’organisation ni dans le déroulement de la soirée.','Cette mention ne limite pas les responsabilités légalement applicables à chacun.']
 
