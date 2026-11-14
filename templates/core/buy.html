@@ -26,7 +26,7 @@
       <h2>RÉCAPITULATIF</h2>
       {% for r in quote.registrations %}<div class="status-row"><span>{{ r.user.get_full_name }}<br><small>Inscription confirmée · téléphone vérifié</small></span><span>{{ event.price }} €</span></div>{% endfor %}
       <p class="mt-4"><strong>Total : {{ quote.total }} €</strong></p>
-      <p class="small muted">Les billets seront envoyés individuellement par SMS et par email avec les fichiers PNG et PDF.</p>
+      <p class="small muted">Chaque personne reçoit un lien SMS vers son billet PNG ; le PNG est aussi joint à l’email.</p>
       {% if event.is_test %}<button name="confirm" value="yes" class="btn btn-gold w-100">Continuer vers le paiement SumUp simulé →</button>{% else %}<button name="confirm" value="yes" class="btn btn-gold w-100">Payer {{ quote.total }} € avec SumUp →</button>{% endif %}
     </form>
   {% else %}

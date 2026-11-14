@@ -80,15 +80,15 @@ def deliver(job):
   title='Glorieux — votre billet TEST' if is_test else 'Glorieux — votre billet'
   text=('Billet TEST enregistré pour ' if is_test else 'Votre billet pour ')+t.line.order.event.name+'\n\n'
   if is_test:text+='Aucun paiement effectué. Ce billet permet de tester le contrôle dans l’événement en mode TEST. Il n’est pas valable pour une entrée réelle.\n\n'
-  text+='Votre PNG et votre PDF sont joints à cet email. Vous pouvez aussi les retrouver ici : '+url
+  text+='Votre billet PNG est joint à cet email. Vous pouvez aussi le retrouver ici : '+url
   return send_email(job.destination,title,text,attachments=ticket_attachments(t))
  if job.kind=='test_ticket_sms':
   t=Ticket.objects.select_related('line__order__event').get(pk=p['ticket'],is_test=True,active=True,line__order__status='test')
-  return send_sms(job.destination,'Glorieux - Votre billet TEST PNG/PDF : '+settings.SITE_URL+'/billet/'+t.download_token+'/')
+  return send_sms(job.destination,'Glorieux - Votre billet TEST PNG : '+settings.SITE_URL+'/billet/'+t.download_token+'/')
  if job.kind=='ticket':
   t=Ticket.objects.select_related('line__order__event').get(pk=p['ticket'])
   if not t.active or t.line.order.status!='paid':return 'cancelled'
-  return send_sms(job.destination,'Glorieux - Votre billet PNG/PDF : '+settings.SITE_URL+'/billet/'+t.download_token+'/')
+  return send_sms(job.destination,'Glorieux - Votre billet PNG : '+settings.SITE_URL+'/billet/'+t.download_token+'/')
  raise RuntimeError('unknown_job')
 
 def record_balance(value):

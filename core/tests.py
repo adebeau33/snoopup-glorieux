@@ -62,9 +62,9 @@ class PlatformTests(TestCase):
  def test_ticket_download_requires_private_token(self):
   t=self.paid_ticket()
   self.assertEqual(self.client.get('/billet/'+str(t.pk)+'/png/').status_code,404)
-  for fmt,ctype in [('png','image/png'),('pdf','application/pdf')]:
-   response=self.client.get('/billet/'+t.download_token+'/'+fmt+'/')
-   self.assertEqual(response.status_code,200);self.assertEqual(response['Content-Type'],ctype)
+  response=self.client.get('/billet/'+t.download_token+'/png/')
+  self.assertEqual(response.status_code,200);self.assertEqual(response['Content-Type'],'image/png')
+  self.assertEqual(self.client.get('/billet/'+t.download_token+'/pdf/').status_code,404)
  def test_device_and_double_scan(self):
   t=self.paid_ticket();v=User.objects.create_user(username='valideur',role='validator')
   Assignment.objects.create(user=v,event=self.e)
@@ -269,9 +269,9 @@ class AuthenticityTests(TestCase):
  paid_ticket=PlatformTests.paid_ticket
  def test_signature_can_be_checked_without_database(self):
   from core.tickets import verify_qr_data
-  ticket=self.paid_ticket();value=ticket_token(ticket);reference=ticket.reference;ticket.delete()
+  ticket=self.paid_ticket();value=ticket_token(ticket);participant_ref=ticket.line.registration_id;ticket.delete()
   with self.assertNumQueries(0):data=verify_qr_data(value)
-  self.assertEqual(data['r'],reference)
+  self.assertEqual(data['r'],participant_ref)
  def test_authentic_unknown_ticket_is_distinct(self):
   ticket=self.paid_ticket();value=ticket_token(ticket);ticket.delete()
   v=User.objects.create_user(username='unknown-validator',role='validator');Assignment.objects.create(user=v,event=self.e)
@@ -280,14 +280,10 @@ class AuthenticityTests(TestCase):
   self.assertEqual(result['status'],'unknown')
   self.assertEqual(Ticket.objects.filter(used_at__isnull=False).count(),0)
  def test_forged_unknown_reference_rejected_before_lookup(self):
-  import json,base64,uuid
   from core.tickets import verify_qr_data
-  ticket=self.paid_ticket();value=ticket_token(ticket);version,payload,signature=value.split('.')
-  data=json.loads(base64.urlsafe_b64decode(payload+'='*(-len(payload)%4)))
-  data['r']='GL-'+str(uuid.uuid4()).upper()
-  forged=base64.urlsafe_b64encode(json.dumps(data,sort_keys=True,separators=(',',':')).encode()).decode().rstrip('=')
+  ticket=self.paid_ticket();value=ticket_token(ticket);forged=value[:25]+'FFFFFFFF'
   with self.assertNumQueries(0):
-   with self.assertRaises(ValidationError) as caught:verify_qr_data(version+'.'+forged+'.'+signature)
+   with self.assertRaises(ValidationError) as caught:verify_qr_data(forged)
   self.assertEqual(caught.exception.code,'signature_invalid')
 
 class RegistrationPurchaseVerificationTests(TestCase):
@@ -379,18 +375,12 @@ class ManualAuthenticityTests(TestCase):
  setUp=PlatformTests.setUp
  reg=PlatformTests.reg
  paid_ticket=PlatformTests.paid_ticket
- def test_manual_reference_requires_and_verifies_signature(self):
+ def test_compact_qr_scans_without_printed_price_or_signature(self):
   import json
   ticket=self.paid_ticket();v=User.objects.create_user(username='manual-validator',role='validator');Assignment.objects.create(user=v,event=self.e)
   device=Device.objects.create(user=v,approved=True,expires_at=timezone.now()+timedelta(hours=2))
   self.client.force_login(v);session=self.client.session;session['device_id']=str(device.pk);session.save()
-  body={'event':self.e.pk,'value':ticket.reference}
-  response=self.client.post('/validation/scan/',json.dumps(body),content_type='application/json')
-  self.assertEqual(response.json()['status'],'unknown');ticket.refresh_from_db();self.assertIsNone(ticket.used_at)
-  body.update(price='15,00',signature='0'*64)
-  response=self.client.post('/validation/scan/',json.dumps(body),content_type='application/json')
-  self.assertEqual(response.status_code,400);self.assertEqual(response.json()['status'],'invalid')
-  body['signature']=ticket_token(ticket).rsplit('.',1)[-1]
+  body={'event':self.e.pk,'value':ticket_token(ticket)}
   response=self.client.post('/validation/scan/',json.dumps(body),content_type='application/json')
   self.assertEqual(response.json()['status'],'accepted')
 
@@ -546,8 +536,8 @@ class EmailAttachmentTests(TestCase):
   with patch('core.delivery.boto3.client',return_value=client):
    self.assertEqual(send_email('test@example.com','Billet TEST','Votre billet',attachments=[('billet.png',b'png-data','image/png'),('billet.pdf',b'%PDF-test','application/pdf')]),'test-id')
   raw=client.send_email.call_args.kwargs['Content']['Raw']['Data'];message=BytesParser(policy=policy.default).parsebytes(raw)
-  self.assertEqual([p.get_content_type() for p in message.iter_attachments()],['image/png','application/pdf'])
-  self.assertEqual([p.get_filename() for p in message.iter_attachments()],['billet.png','billet.pdf'])
+  self.assertEqual([p.get_content_type() for p in message.iter_attachments()],['image/png'])
+  self.assertEqual([p.get_filename() for p in message.iter_attachments()],['billet.png'])
  def test_payment_queues_individual_email_beside_sms(self):
   PlatformTests.setUp(self)
   registration=pre_register(self.u,self.e,'adult');order=create_order(self.u,self.e,[registration.pk]);order.checkout_id='mail';order.save()

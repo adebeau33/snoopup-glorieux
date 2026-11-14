@@ -1,17 +1,16 @@
-import hashlib,hmac,io,textwrap
+import hashlib,hmac,io,re,textwrap
 from urllib.parse import urlsplit
 from PIL import Image,ImageDraw,ImageFont
 import qrcode
-from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader
 from django.conf import settings
 from django.core.exceptions import ValidationError,PermissionDenied
 from django.db import transaction
 from django.utils import timezone
+from django.utils.formats import date_format
 from .models import Ticket,Device,Assignment,Audit
 
 def ticket_data(ticket):
- return {'r':ticket.reference,'e':ticket.line.order.event_id,'p':ticket.line.price_cents,'c':'EUR','t':ticket.is_test}
+ return {'r':ticket.line.registration_id,'e':ticket.line.order.event_id,'t':ticket.is_test}
 
 def encoded_ticket_data(data):
  import base64,json
@@ -19,12 +18,13 @@ def encoded_ticket_data(data):
  return base64.urlsafe_b64encode(raw).decode().rstrip('=')
 
 def ticket_token(ticket):
- encoded=encoded_ticket_data(ticket_data(ticket))
- version='t1' if ticket.is_test else 'v1'
- message=version+'.'+encoded
+ event_id=int(ticket.line.order.event_id);participant_id=int(ticket.line.registration_id)
+ if not 0<event_id<2**24 or not 0<participant_id<2**32:raise ValueError('Event or participant reference exceeds compact QR limits.')
+ version='G1T' if ticket.is_test else 'G1R'
+ message=version+f'{event_id:06X}{participant_id:08X}'
  key=hmac.new(settings.TICKET_SECRET.encode(),b'glorieux-test-ticket-v1',hashlib.sha256).digest() if ticket.is_test else settings.TICKET_SECRET.encode()
- signature=hmac.new(key,message.encode(),hashlib.sha256).hexdigest()
- return message+'.'+signature
+ signature=hmac.new(key,message.encode('ascii'),hashlib.sha256).digest()[:8].hex().upper()
+ return version+f'{event_id:06X}'+signature+f'{participant_id:08X}'
 
 def verify_qr_data(value):
  """Verify authenticity before any database lookup. Never disclose the signing key."""
@@ -34,6 +34,14 @@ def verify_qr_data(value):
   url=urlsplit(value)
   if url.netloc!=urlsplit(settings.SITE_URL).netloc or not url.path.startswith('/q/'):raise ValidationError('QR code étranger à cette billetterie.',code='format_invalid')
   value=url.path[3:].strip('/')
+ compact=value.upper()
+ if re.fullmatch(r'G1[RT][0-9A-F]{30}',compact):
+  prefix=compact[:3];event_ref=compact[3:9];signature=compact[9:25];participant_ref=compact[25:33]
+  message=prefix+event_ref+participant_ref
+  key=hmac.new(settings.TICKET_SECRET.encode(),b'glorieux-test-ticket-v1',hashlib.sha256).digest() if prefix=='G1T' else settings.TICKET_SECRET.encode()
+  expected=hmac.new(key,message.encode('ascii'),hashlib.sha256).digest()[:8].hex().upper()
+  if not hmac.compare_digest(expected,signature):raise ValidationError('Signature invalide : QR code falsifié ou altéré.',code='signature_invalid')
+  return {'r':int(participant_ref,16),'e':int(event_ref,16),'t':prefix=='G1T'}
  try:version,encoded,signature=value.split('.')
  except ValueError:raise ValidationError('QR code incomplet ou illisible.',code='format_invalid')
  if version not in ['v1','t1']:raise ValidationError('Version de billet non reconnue.',code='format_invalid')
@@ -47,13 +55,22 @@ def verify_qr_data(value):
   reference=prefix+str(uuid.UUID(data['r'][len(prefix):])).upper()
   if data['r']!=reference:raise ValueError()
  except Exception:raise ValidationError('Données signées illisibles : contrôle de l’organisation requis.',code='signed_format_invalid')
+ data['_legacy']=True
  return data
 
 def resolve_ticket(value):
  data=verify_qr_data(value)
- try:t=Ticket.objects.select_related('line__order__event','line__registration__user').get(pk=data['r'][5:] if data['t'] else data['r'][3:])
+ tickets=Ticket.objects.select_related('line__order__event','line__registration__user')
+ try:
+  if data.get('_legacy'):
+   t=tickets.get(pk=data['r'][5:] if data['t'] else data['r'][3:])
+   legacy={'r':('GL-T-' if t.is_test else 'GL-')+str(t.pk).upper(),'e':t.line.order.event_id,'p':t.line.price_cents,'c':'EUR','t':t.is_test}
+   if legacy!={key:value for key,value in data.items() if key!='_legacy'}:raise ValidationError('Signature authentique, mais données différentes de la base.',code='authentic_mismatch')
+  else:
+   qs=tickets.filter(line__registration_id=data['r'],line__order__event_id=data['e'],is_test=data['t']).order_by('-active','-created_at')
+   t=qs.first()
+   if not t:raise Ticket.DoesNotExist()
  except Ticket.DoesNotExist:raise ValidationError('Signature authentique, mais référence absente de la base. Contrôle de l’organisation requis.',code='authentic_unknown')
- if ticket_data(t)!=data:raise ValidationError('Signature authentique, mais données différentes de la base. Contrôle de l’organisation requis.',code='authentic_mismatch')
  return t
 
 def scan_ticket(user,device,value,event_id=None,mode='entry'):
@@ -76,8 +93,9 @@ def scan_ticket(user,device,value,event_id=None,mode='entry'):
  except ValidationError as exc:
   if exc.code in ['authentic_unknown','authentic_mismatch']:
    from .models import Event
-   Audit.objects.create(actor=user,device=d,event_id=event_id,action=exc.code,object_id=data['r'])
-   return {'status':'unknown','message':exc.messages[0],'reference':data['r']}
+   reference=data['r'] if isinstance(data['r'],str) else ('GL-T-' if data['t'] else 'GL-')+f"{data['r']:08X}"
+   Audit.objects.create(actor=user,device=d,event_id=event_id,action=exc.code,object_id=reference)
+   return {'status':'unknown','message':exc.messages[0],'reference':reference}
   raise
  with transaction.atomic():
   t=Ticket.objects.select_for_update().get(pk=t.pk)
@@ -112,77 +130,32 @@ def _render_ticket(ticket,fmt):
   path=settings.BASE_DIR/('static/core/font-3.ttf' if heading else 'static/core/font-4.ttf')
   try:return ImageFont.truetype(str(path),size)
   except OSError:return ImageFont.load_default(size=size)
- def badge(image,x,y,size):
-  try:
-   crop=Image.open(settings.BASE_DIR/'static/core/event-logo-source.png').convert('RGBA').resize((size,size),Image.Resampling.LANCZOS)
-   image.paste(crop,(x,y),crop)
-  except OSError:pass
- # Compose and measure every line before allocating the ticket canvas.
- elements=[];y=385
- def add(text,size=30,heading=False,color=navy,width=60,gap=12):
-  nonlocal y
-  for line in textwrap.wrap(text,width):elements.append((line,size,heading,color,y));y+=size+gap
- add(e.name.upper(),64,True,width=32)
- y+=20;add('CE SOIR, TU ES DES NÔTRES.',23,True,color='#896c2c')
- add(u.get_full_name(),43,True,width=39);y+=16
- date_y=y;y+=115
- add('LE RENDEZ-VOUS',22,True,color=muted)
- add(e.venue,34,True,width=47)
- add(e.address,25,width=65,gap=10)
- y+=20;tear_y=y;y+=55;test_banner_y=y
- if ticket.is_test:y+=72
- qr_y=y;y+=500
- security_y=y;y+=205
- footer_y=y
- footer=[]
- for text in [*MENTIONS,'Organisation : '+e.organizer_name,e.organizer_address,'Contact : '+e.organizer_contact]:
-  if not text or text=='Contact : ':continue
-  for line in textwrap.wrap(text,81):footer.append((line,y));y+=27
- height=max(1920,y+95)
- image=Image.new('RGB',(1080,height),navy);d=ImageDraw.Draw(image)
- # Athletics-inspired header and a gold edition strip.
- d.rectangle((0,0,1080,13),fill=gold)
- d.text((65,55),'BDE GRAND LEBRUN / 2026—2027',font=font(25,True),fill=gold)
- d.text((60,90),'GLORIEUX',font=font(112,True),fill=cream)
- d.text((65,220),'TA SOIRÉE. TON PASS. TES SOUVENIRS.',font=font(24,True),fill=gold)
- badge(image,830,58,180)
- # Decorative flash, side accents and perforation marks are drawn as vector shapes.
- for x in [775,800,825]:d.line((x,238,x+16,204),fill=gold,width=3)
- d.rounded_rectangle((35,300,1045,height-38),radius=26,fill=cream)
- d.rounded_rectangle((65,320,370,359),radius=5,fill=gold)
- d.text((80,326),'PASS NOMINATIF / 1 ENTRÉE',font=font(22,True),fill=navy)
- d.text((835,325),'ON SE VOIT LÀ-BAS !',font=font(17,True),fill=navy)
- for text,size,heading,color,pos in elements:d.text((75,pos),text,font=font(size,heading),fill=color)
- for x,label,value in [(75,'LA DATE',timezone.localtime(e.starts_at).strftime('%d.%m.%Y')),(445,'DÈS',timezone.localtime(e.starts_at).strftime('%H h %M')),(735,'TARIF SIMULÉ' if ticket.is_test else 'PRIX PAYÉ',f'{ticket.line.price_cents/100:.2f} €'.replace('.',','))]:
-  d.text((x,date_y),label,font=font(19,True),fill=muted)
-  d.text((x,date_y+30),value,font=font(43,True),fill=navy)
- for x in range(35,1045,25):d.line((x,tear_y,x+12,tear_y),fill='#adb0b6',width=2)
- d.ellipse((15,tear_y-20,55,tear_y+20),fill=navy);d.ellipse((1025,tear_y-20,1065,tear_y+20),fill=navy)
+ def centered(draw,text,y,f,color):
+  bounds=draw.textbbox((0,0),text,font=f)
+  draw.text(((1000-(bounds[2]-bounds[0]))/2,y),text,font=f,fill=color)
+ # Compact ticket PNG: attendee, event date and a large, signed QR with the event crest.
+ image=Image.new('RGB',(1000,1200),'white');d=ImageDraw.Draw(image)
  if ticket.is_test:
-  d.rounded_rectangle((75,test_banner_y-8,1005,test_banner_y+49),radius=6,fill='#cf384c')
-  d.text((100,test_banner_y),'BILLET TEST',font=font(38,True),fill='white')
- qr=qrcode.QRCode(box_size=1,border=4,error_correction=qrcode.constants.ERROR_CORRECT_M)
- qr.add_data(settings.SITE_URL+'/q/'+ticket_token(ticket)+'/');qr.make(fit=True)
- qr.box_size=max(1,480//len(qr.get_matrix()))
+  d.rounded_rectangle((50,24,950,76),radius=8,fill='#c83d4b')
+  centered(d,'BILLET TEST — NON VALABLE EN MODE RÉEL',32,font(25,True),'white')
+ centered(d,e.name.upper(),100 if ticket.is_test else 44,font(40,True),navy)
+ centered(d,u.get_full_name(),165 if ticket.is_test else 115,font(58,True),navy)
+ date=date_format(timezone.localtime(e.starts_at),'l d F Y · H:i').upper()
+ centered(d,date,238 if ticket.is_test else 190,font(29,True),muted)
+ qr=qrcode.QRCode(box_size=24,border=4,error_correction=qrcode.constants.ERROR_CORRECT_H)
+ qr.add_data(ticket_token(ticket));qr.make(fit=True)
  qr_image=qr.make_image(fill_color=navy,back_color='white').convert('RGB')
- d.rounded_rectangle((270,qr_y,810,qr_y+490),radius=15,fill='white')
- image.paste(qr_image,((1080-qr_image.width)//2,qr_y+(490-qr_image.height)//2))
- d.text((75,security_y+15),'RÉFÉRENCE UNIQUE',font=font(19,True),fill=muted)
- d.text((75,security_y+45),ticket.reference,font=font(25,True),fill=navy)
- d.text((75,security_y+90),'SIGNATURE HMAC-SHA-256 · AUTHENTICITÉ',font=font(18,True),fill=muted)
- signature=ticket_token(ticket).rsplit('.',1)[-1]
- d.text((75,security_y+120),signature[:32],font=font(22),fill=navy)
- d.text((75,security_y+151),signature[32:],font=font(22),fill=navy)
- d.line((75,footer_y-10,1005,footer_y-10),fill=gold,width=2)
- for line,pos in footer:d.text((75,pos+12),line,font=font(20),fill='#475467')
- d.text((75,height-82),'BILLETTERIE SNOOPUP.IO / LE QR NE DOIT PAS ÊTRE PARTAGÉ',font=font(18,True),fill='#896c2c')
- out=io.BytesIO()
- if fmt=='png':image.save(out,format='PNG')
- else:
-  from reportlab.lib.pagesizes import A4
-  width,page_height=A4;scale=min(width/1080,page_height/height)
-  c=canvas.Canvas(out,pagesize=A4);c.drawImage(ImageReader(image),(width-1080*scale)/2,(page_height-height*scale)/2,width=1080*scale,height=height*scale);c.showPage();c.save()
- return out.getvalue()
+ # A centered badge covers only data modules, not finder patterns; H correction restores them.
+ logo=Image.open(settings.BASE_DIR/'static/core/event-logo-source.png').convert('RGBA')
+ logo.thumbnail((185,185),Image.Resampling.LANCZOS)
+ tile=Image.new('RGBA',(225,225),(255,255,255,255));tile.alpha_composite(logo,((225-logo.width)//2,(225-logo.height)//2))
+ ImageDraw.Draw(tile).ellipse((2,2,222,222),outline=(207,173,96,255),width=4)
+ qr_image.paste(tile.convert('RGB'),((qr_image.width-225)//2,(qr_image.height-225)//2))
+ qr_x=(1000-qr_image.width)//2;qr_y=292 if ticket.is_test else 245
+ image.paste(qr_image,(qr_x,qr_y))
+ if fmt=='png':
+  out=io.BytesIO();image.save(out,format='PNG',optimize=True);return out.getvalue()
+ raise ValueError('Unsupported ticket format.')
 
 def render_social(event=None):
  image=Image.new('RGB',(1200,630),'#152440');draw=ImageDraw.Draw(image)
@@ -214,11 +187,6 @@ def render_social(event=None):
 
 
 def ticket_attachments(ticket):
- """Build both formats from one image composition to bound worker memory."""
- with _RENDER_LOCK:
-  png=_render_ticket(ticket,'png')
-  from reportlab.lib.pagesizes import A4
-  image=Image.open(io.BytesIO(png));width,height=A4;scale=min(width/image.width,height/image.height)
-  out=io.BytesIO();pdf=canvas.Canvas(out,pagesize=A4);pdf.drawImage(ImageReader(image),(width-image.width*scale)/2,(height-image.height*scale)/2,width=image.width*scale,height=image.height*scale);pdf.showPage();pdf.save()
-  prefix='glorieux-test' if ticket.is_test else 'glorieux'
-  return [(prefix+'.png',png,'image/png'),(prefix+'.pdf',out.getvalue(),'application/pdf')]
+ """Attach only the compact PNG billet requested for this event."""
+ prefix='glorieux-test' if ticket.is_test else 'glorieux'
+ return [(prefix+'.png',render_ticket(ticket,'png'),'image/png')]

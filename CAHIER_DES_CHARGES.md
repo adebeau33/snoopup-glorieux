@@ -6,7 +6,7 @@ Ce document rassemble les demandes validées et les propositions nécessaires à
 
 ## 1. Objectif et périmètre
 
-Créer une application web Bootstrap, responsive sur téléphone et ordinateur, pour organiser des soirées : inscription, paiement SumUp, émission de billets nominatifs PNG et PDF, distribution par SMS et contrôle des entrées avec la caméra d’un téléphone sans application à installer.
+Créer une application web Bootstrap, responsive sur téléphone et ordinateur, pour organiser des soirées : inscription, paiement SumUp, émission de billets nominatifs PNG, distribution par SMS et contrôle des entrées avec la caméra d’un téléphone sans application à installer.
 
 Projet courant : `/Users/alban.debeaupuis/script/BDE`. Cible d’installation demandée : `~/digi2`. Le chemin absolu, la machine cible et les modalités de déploiement restent à confirmer avant intervention hors du projet courant.
 
@@ -83,37 +83,25 @@ Références :
 - https://developer.sumup.com/online-payments/checkouts/hosted-checkout/
 - https://developer.sumup.com/online-payments/webhooks/
 
-## 5. Billets PNG et PDF
+## 5. Billet PNG et QR compact
 
-Chaque participant reçoit son billet dans les deux formats, avec le même identifiant et le même QR code. L’utilisation d’un format rend l’autre inutilisable pour une seconde entrée.
+Le participant reçoit un seul PNG nominatif. Il affiche son nom et prénom, le nom et la date de la soirée, et un QR agrandi avec le logo de la soirée au centre. Le QR n’est pas une URL : il ne donne aucun accès public au billet. Le valideur connecté le lit dans `/validation/` avec la caméra du téléphone ou un lecteur Bluetooth en mode clavier.
 
-Informations sur chaque billet :
-- Logo et identité de l’organisation.
-- Nom et prénom du participant.
-- Prix effectivement payé pour cette place, avec devise.
-- Nom de l’événement.
-- Date et heure de l’événement, lieu et adresse complète.
-- Numéro de billet et QR code lisible.
-- Mentions de participation et de prévention.
+Format compact du QR : préfixe version/type, référence d’événement sur 3 octets, signature HMAC-SHA-256 tronquée sur 8 octets au milieu, référence d’inscription du participant sur 4 octets. Les références sont encodées en hexadécimal. La signature est calculée sur la version, le type, la référence d’événement et la référence d’inscription. La clé secrète reste uniquement sur le serveur ; les billets TEST ont une clé dérivée distincte. Une signature invalide est refusée avant toute recherche en base ; une signature valide mais inconnue demande un contrôle organisateur.
 
-Le PNG est adapté à la consultation sur téléphone et à l’enregistrement dans les photos. Le PDF est adapté à l’archivage et à l’impression. Préserver une zone blanche autour du QR code et vérifier sa lisibilité à l’écran et sur papier.
+La référence d’événement et la référence d’inscription sont des identifiants, pas des secrets. Les 8 octets d’HMAC protègent le code contre la fabrication ; leur position au milieu du texte vise aussi à décourager la copie sommaire d’un suffixe.
 
-Mentions demandées ou proposées :
-> Billet personnel — valable pour une seule entrée.
-> Ne partagez pas votre billet ni son QR code.
-> Ne pas déposer sur la voie publique.
-> L’abus d’alcool est dangereux pour la santé. À consommer avec modération.
-> Prévoyez votre retour : désignez un SAM, un conducteur qui ne boit pas.
+Le QR utilise une correction d’erreur élevée, une zone blanche périphérique et un contraste marine/blanc. Le logo central reste assez petit pour préserver la lecture. Le billet de test porte un bandeau BILLET TEST hors du QR. Les anciens QR version v1/t1 restent reconnus par le valideur durant la transition.
 
-La mention demandée « SAM obligatoire » reste à préciser : obligation par groupe venant en voiture, déclaration à l’inscription et éventuel contrôle à l’entrée. Ne pas présenter une règle non définie comme une condition d’accès. Ces mentions ne constituent pas une liste exhaustive d’obligations réglementaires ; leur version finale dépendra des conditions réelles de la soirée.
+L’appareil photo standard d’un participant affichera le code brut plutôt que d’ouvrir la page événement, puisque le QR ne contient pas de lien.
 
 ## 6. Distribution par SMS
 
-Un SMS classique ne contient pas de pièces jointes PNG ou PDF. Chaque participant reçoit donc directement sur son numéro un lien sécurisé donnant accès à ses deux formats.
+Un SMS classique ne contient pas de pièces jointes PNG ou PDF. Chaque participant reçoit donc directement sur son numéro un lien sécurisé donnant accès au PNG.
 
 - Lien non devinable et transmis en HTTPS.
-- Téléchargements accessibles sans compte, via un jeton secret distinct de l’identifiant public utilisé dans le QR code.
-- Le scan public du QR code ne doit jamais donner accès au PDF nominatif.
+- Téléchargement PNG accessible sans compte, via un jeton secret distinct du code QR compact.
+- Le QR ne contient pas de lien de téléchargement et ne révèle pas le PNG lors d’un scan public.
 - Suivi des envois et des échecs ; les états de livraison disponibles dépendront du prestataire SMS.
 - Relances contrôlées, sans recréer de billet ni multiplier les messages sur notification de paiement répétée.
 - Une panne SMS ne transforme pas une commande payée en commande impayée.
@@ -123,13 +111,13 @@ Prestataire SMS, budget, durée de validité des liens et politique de renvoi à
 
 ## 7. QR code et protection du billet
 
-Le QR code contient une URL HTTPS avec un identifiant aléatoire non devinable et une signature. Proposition : HMAC-SHA-256 avec secret exclusivement côté serveur, couvrant au minimum l’identifiant du billet, l’événement, le prix en centimes et la devise. Un simple hash SHA du prix n’est pas suffisant.
+Décision la plus récente : le QR contient un code compact sans URL. Il est signé par HMAC-SHA-256 avec une clé exclusivement côté serveur. Le format accepté est décrit à la section 22.
 
 Ne pas inclure de données personnelles dans le QR code. Le prix et les champs signés sont figés à l’émission ; une modification ultérieure du tarif de l’événement n’invalide pas les billets déjà vendus. Prévoir une version de signature pour la rotation des clés.
 
 ### Scan par un participant
 
-Une ouverture normale du lien affiche la page publique de l’événement. Elle ne consomme jamais le billet, même en cas d’ouvertures répétées, de prévisualisation de lien ou de scan par la caméra native. Elle n’affiche aucune donnée personnelle ou état détaillé du billet.
+Le scan public du QR n’ouvre aucun lien et n’enregistre aucune entrée ; la caméra ordinaire affiche le code brut. Le contrôle et l’accès aux données nominatives sont réservés au valideur connecté et autorisé.
 
 ### Scan par un valideur
 
@@ -184,8 +172,8 @@ Propositions complémentaires : authentification renforcée pour superadmin et a
 - Refus serveur d’un montant modifié par le navigateur et respect de la jauge en cas d’achats simultanés.
 - Paiement confirmé même si l’acheteur ferme son navigateur ; aucune émission sur simple retour de page.
 - Notifications répétées et reprise après panne sans création de billets supplémentaires.
-- Livraison individuelle de liens vers PNG et PDF ; relance possible après échec.
-- Correspondance exacte entre nom, montant, événement, date, heure et adresse sur les deux formats.
+- Livraison individuelle de liens vers PNG ; relance possible après échec.
+- Le PNG affiche nom, prénom, soirée et date ; les informations tarifaires et d’adresse restent accessibles sur les pages de l’événement et de la commande.
 - Scan public sans effet sur le billet et sans exposition des informations personnelles.
 - Scan autorisé consommant exactement une entrée, y compris lors de scans simultanés.
 - Refus d’un valideur non affecté, appareil non approuvé ou accès révoqué.
@@ -302,7 +290,7 @@ Interprétation retenue : « transférable dans les réseaux sociaux » signifie
 
 ## 17. Mention du prestataire technique sur les billets
 
-Demande : afficher sur chaque billet PNG et PDF une mention indiquant que Snoopup.io fournit la billetterie sans organiser la soirée.
+Demande : afficher sur chaque billet PNG une mention indiquant que Snoopup.io fournit la billetterie sans organiser la soirée.
 
 Formulation proposée :
 > Billet émis via Snoopup.io, prestataire technique de billetterie. Snoopup.io n’intervient pas dans l’organisation ni dans le déroulement de cette soirée. L’organisation de l’événement relève de [nom de l’organisateur], joignable à [contact]. Cette mention ne limite pas les responsabilités légalement applicables à chacun.
@@ -329,7 +317,7 @@ Le superadmin propriétaire est créé. Son accès initial est conservé dans de
 
 Règle actuelle pour l’achat groupé : chaque bénéficiaire doit confirmer son email et compléter sa propre inscription avant l’achat. Au paiement, le titulaire du compte saisit les codes SMS reçus par chacun. La déclaration des mineurs reste personnelle ; les numéros des autres bénéficiaires sont masqués sauf les deux derniers chiffres.
 
-Fonctions implémentées : comptes, confirmation email puis téléphone au paiement, inscriptions sans code événement, administration et rôles, KPI et exports CSV, intégration SumUp hébergée avec réconciliation, page de paiement simulée pour les événements TEST, billets PNG/PDF et signatures, envois persistants, contrôle par appareil et événement, partage public sans secrets, journal et sauvegarde locale quotidienne.
+Fonctions implémentées : comptes, confirmation email puis téléphone au paiement, inscriptions sans code événement, administration et rôles, KPI et exports CSV, intégration SumUp hébergée avec réconciliation, page de paiement simulée pour les événements TEST, billets PNG et signatures, envois persistants, contrôle par appareil et événement, partage public sans secrets, journal et sauvegarde locale quotidienne.
 
 Réserves de mise en exploitation : renseigner SumUp et le prestataire SMS (adaptateur Twilio fourni), créer les événements réels, compléter les conditions juridiques et la conservation, vérifier les caméras iPhone/Android et réaliser les tests fournisseurs de bout en bout. Les ventes sont bloquées sans les intégrations nécessaires. Remboursements, transferts, réémissions et réentrées restent à définir/automatiser séparément. MAIL FROM personnalisé, politique DMARC, suivi SES des rejets/plaintes et externalisation des sauvegardes restent à finaliser. Le rôle SES de la plateforme est limité à l’envoi depuis `billetterie@snoopup.io`.
 
@@ -340,7 +328,7 @@ Test de charge isolé sur AWS : 2 000 validations avec 8 threads en 17,06 second
 
 Première soirée : samedi 21 novembre 2026 à partir de 22 h, au « Death before sunlight », à Bordeaux. L’adresse exacte, le tarif, la jauge et les coordonnées de l’organisateur restent à compléter avant ouverture des ventes. L’événement est affiché avec ventes fermées ; aucun tarif gratuit n’est annoncé par défaut.
 
-Afficher sur la page événement, la inscription, le récapitulatif avant paiement et sur les billets PNG/PDF :
+Afficher sur la page événement, la inscription, le récapitulatif avant paiement et sur les billets PNG :
 
 > Merci de présenter une pièce d’identité à l’entrée afin de permettre la vérification de votre identité. Cette soirée privée est réservée aux membres de l’établissement Sainte-Marie Grand Lebrun munis d’un billet nominatif valide. Toute personne sans billet valide ou extérieure à l’établissement se verra refuser l’accès.
 
@@ -359,19 +347,15 @@ Deux exceptions exactes à la règle du domaine scolaire sont autorisées : `alb
 Aucune option ni demande de rôle administrateur n’apparaît à l’inscription. Tous les nouveaux comptes sont créés comme étudiants. Le superadmin peut ensuite sélectionner un utilisateur inscrit et lui accorder le rôle administrateur via une action réservée et journalisée. Un administrateur ne peut pas attribuer ce rôle. Aucun compte alban@audiopro.fr n’est créé sans ses coordonnées obligatoires ; l’adresse est autorisée à s’inscrire.
 
 
-## 22. Référence, signature imprimée et distinction des billets inconnus
+## 22. Références compactes et authenticité des QR
 
-Chaque billet dispose d’une référence unique `GL-<UUID>` et d’une signature HMAC-SHA-256 de 64 caractères hexadécimaux, imprimées sur le PNG et le PDF. La référence, l’événement, le prix payé en centimes et la devise font partie des données signées. Le QR contient ces données sous forme compacte et versionnée, ainsi que leur signature ; il ne contient jamais la clé secrète de signature.
+Le QR contient une référence d’événement de 3 octets, une référence d’inscription de 4 octets et un HMAC-SHA-256 tronqué à 8 octets, placé au milieu du code entre les deux références. Le texte commence par une version et un marqueur réel/test. Les références sont hexadécimales ; le QR ne contient ni URL ni clé secrète. La référence d’inscription est propre au participant dans cet événement.
 
-Vérifier la signature indépendamment de la base, avant de chercher la référence :
-- Signature invalide : billet falsifié ou altéré, refus (rouge).
-- Signature valide mais référence absente ou données incohérentes : billet signé par le système mais non retrouvé/conforme dans la base, contrôle organisateur requis (orange), aucune entrée automatique. Une signature valide ne prouve pas un paiement.
-- Signature valide et référence connue : vérifier soirée attendue, paiement, annulation et absence de passage avant acceptation (vert).
+La signature est calculée sur la version/type et les deux références. La position de la signature n’ajoute pas de force cryptographique, mais évite le suffixe court aisément recopié. L’authenticité provient du HMAC et de sa clé serveur, pas de l’ordre des caractères. Les billets TEST utilisent une clé dérivée distincte.
 
-En saisie manuelle, la référence seule n’atteste pas l’authenticité : saisir également le prix payé et la signature imprimés, avec l’événement sélectionné, ou utiliser le lien complet du QR. Les mêmes vérifications s’appliquent ensuite. Copier référence et signature reste une copie du même billet ; le contrôle d’usage unique et d’identité reste nécessaire.
+Le valideur vérifie la signature avant toute recherche en base. Signature invalide : refus. Signature valide mais participant absent : billet inconnu, contrôle organisateur requis, sans entrée automatique. Signature valide et référence connue : contrôler le paiement, le mode TEST, l’annulation et l’usage antérieur avant d’accepter. Les anciennes versions de QR restent temporairement reconnues.
 
-Le billet est un pass graphique marine/or/crème avec logo, titres de style universitaire, éléments graphiques et zone QR contrastée, typographies locales, référence et signature lisibles. Sa hauteur s’adapte aux textes pour ne tronquer ni le QR ni les mentions. Un aperçu fictif est générable sans enregistrement et avec une clé de test distincte, marqué « APERÇU NON VALABLE » ; le tarif illustratif de cet aperçu n’est pas le tarif annoncé de la soirée.
-
+Pour les lecteurs Bluetooth HID, `/validation/` propose un champ de saisie compatible avec les lecteurs qui transmettent le code comme un clavier et terminent par Entrée.
 
 ## 23. Évolutions validées et livrées
 
@@ -383,4 +367,4 @@ Le billet est un pass graphique marine/or/crème avec logo, titres de style univ
 - Modes Entrée automatique et Consultation. Horodatages d’entrée dans HTML/CSV/PDF et journal de l’appareil/valideur.
 - Après vérification : bip fort (selon volume et autorisation audio du téléphone), nom/prénom et bienvenue au prénom pour un billet valide. Résultat plein écran maintenu jusqu’à un appui ; aucun redémarrage automatique. Son de refus distinct.
 - Boutons œil sur les deux mots de passe d’inscription.
-- Billets envoyés par lienSMS et PNG/PDF directement joints à l’email, y compris pour les tests. Envoi test explicitement autorisé vers le numéro fourni par l’utilisateur et son Gmail ; ne pas enregistrer ce numéro dans Git.
+- Billets envoyés par lien SMS vers le PNG et PNG directement joint à l’email, y compris pour les tests. Envoi test explicitement autorisé vers le numéro fourni par l’utilisateur et son Gmail ; ne pas enregistrer ce numéro dans Git.

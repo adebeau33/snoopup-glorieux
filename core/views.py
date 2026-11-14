@@ -203,9 +203,9 @@ def public_scan(request,value):
 @never_cache
 def ticket_download(request,token,fmt=None):
  t=get_object_or_404(Ticket.objects.select_related('line__registration__user','line__order__event'),download_token=token,active=True,line__order__status__in=['paid','test'])
- if fmt not in ['png','pdf',None]:raise Http404()
+ if fmt not in ['png',None]:raise Http404()
  if fmt:
-  response=HttpResponse(render_ticket(t,fmt),content_type='image/png' if fmt=='png' else 'application/pdf')
+  response=HttpResponse(render_ticket(t,fmt),content_type='image/png')
   response['Content-Disposition']=f'attachment; filename="glorieux-{str(t.pk)[:8]}.{fmt}"'
  else:response=render(request,'core/ticket.html',{'ticket':t,'event':t.line.order.event})
  response['X-Robots-Tag']='noindex, nofollow';response['Referrer-Policy']='no-referrer';return response
@@ -317,7 +317,7 @@ def issue_test_ticket(request,event_id):
    messages.success(request,'Billet TEST créé sans paiement et sans réservation de place réelle.')
    return redirect('ticket',token=ticket.download_token)
   except ValidationError as exc:error_message(request,exc)
- return render(request,'core/form.html',{'form':form,'eyebrow':'SUPERADMIN / MODE TEST','title':'GÉNÉRER UN BILLET TEST','intro':'Active le mode TEST de cet événement dans l’administration. Le QR reste lisible, mais ce billet sera refusé en mode réel. Aucun SMS n’est envoyé par cette opération.','submit':'Générer le PNG et le PDF de test'})
+ return render(request,'core/form.html',{'form':form,'eyebrow':'SUPERADMIN / MODE TEST','title':'GÉNÉRER UN BILLET TEST','intro':'Active le mode TEST de cet événement dans l’administration. Le QR reste lisible, mais ce billet sera refusé en mode réel. Aucun SMS n’est envoyé par cette opération.','submit':'Générer le PNG de test'})
 
 @login_required
 @never_cache

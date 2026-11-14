@@ -99,7 +99,7 @@ class Ticket(models.Model):
  used_by=models.ForeignKey(User,on_delete=models.PROTECT,null=True,blank=True,related_name='validated_tickets')
  created_at=models.DateTimeField(auto_now_add=True)
  @property
- def reference(self):return ('GL-T-' if self.is_test else 'GL-')+str(self.pk).upper()
+ def reference(self):return ('GL-T-' if self.is_test else 'GL-')+f'{self.line.registration_id:08X}'
  class Meta:verbose_name='billet'
 
 class Device(models.Model):
