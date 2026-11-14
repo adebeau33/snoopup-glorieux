@@ -12,7 +12,7 @@ WSGI_APPLICATION='glorieux.wsgi.application'
 DATABASES={'default':{'ENGINE':'django.db.backends.sqlite3','NAME':os.getenv('DATABASE_PATH',str(BASE_DIR/'db.sqlite3')),'OPTIONS':{'timeout':20,'transaction_mode':'IMMEDIATE'},'TEST':{'NAME':os.getenv('TEST_DATABASE_PATH','/tmp/glorieux-test.sqlite3')}}}
 
 AUTH_USER_MODEL='core.User'
-AUTH_PASSWORD_VALIDATORS=[{'NAME':'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},{'NAME':'django.contrib.auth.password_validation.MinimumLengthValidator','OPTIONS':{'min_length':12}},{'NAME':'django.contrib.auth.password_validation.CommonPasswordValidator'},{'NAME':'django.contrib.auth.password_validation.NumericPasswordValidator'}]
+AUTH_PASSWORD_VALIDATORS=[{'NAME':'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},{'NAME':'django.contrib.auth.password_validation.MinimumLengthValidator','OPTIONS':{'min_length':8}},{'NAME':'django.contrib.auth.password_validation.CommonPasswordValidator'},{'NAME':'django.contrib.auth.password_validation.NumericPasswordValidator'}]
 LANGUAGE_CODE='fr-fr'
 TIME_ZONE='Europe/Paris'
 USE_I18N=True
@@ -50,3 +50,11 @@ DEFAULT_FROM_EMAIL=FROM_EMAIL
 PASSWORD_RESET_TIMEOUT=1800
 
 TEST_ALLOWED_EMAILS={x.strip().lower() for x in os.getenv('TEST_ALLOWED_EMAILS','alban.debeaupuis@gmail.com,alban@audiopro.fr').split(',') if x.strip()}
+
+OVH_SMS_ACCOUNT=os.getenv('OVH_SMS_ACCOUNT','')
+OVH_SMS_LOGIN=os.getenv('OVH_SMS_LOGIN','')
+OVH_SMS_PASSWORD=os.getenv('OVH_SMS_PASSWORD','')
+OVH_SMS_SENDER=os.getenv('OVH_SMS_SENDER','SNOOPUPIO')
+PAYMENTS_ENABLED=os.getenv('PAYMENTS_ENABLED','0')=='1'
+
+OVH_SMS_USE_SHORT_NUMBER=os.getenv('OVH_SMS_USE_SHORT_NUMBER','0')=='1'

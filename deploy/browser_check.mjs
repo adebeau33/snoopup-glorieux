@@ -13,6 +13,7 @@ try{
   await call('Page.navigate',{url:'https://glorieux.snoopup.io'+path});await sleep(1800);
   const result=await call('Runtime.evaluate',{expression:"JSON.stringify({width:innerWidth,scroll:document.documentElement.scrollWidth,overflow:[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>innerWidth+2).slice(0,8).map(e=>({tag:e.tagName,cls:e.className,width:e.getBoundingClientRect().width}))})",returnByValue:true});
   console.log(path,result.result.result.value);
+  if(name==='signup'){const eye=await call('Runtime.evaluate',{expression:`(()=>{const fields=[...document.querySelectorAll('input[type=password]')];if(fields.length!==2)return false;for(const input of fields){const button=input.parentNode.querySelector('.password-toggle');if(!button)return false;input.value='UnMotDePasseDeTest123!';button.click();if(input.type!=='text'||button.getAttribute('aria-pressed')!=='true')return false;button.click();if(input.type!=='password'||input.value!=='UnMotDePasseDeTest123!')return false;input.value='';}return true;})()`,returnByValue:true});if(eye.result.result.value!==true)throw new Error('Password visibility check failed');console.log('Boutons œil : affichage/masquage vérifié sur les deux champs.');}
   const image=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync('output/mobile-'+name+'.png',Buffer.from(image.result.data,'base64'));
  }
  ws.close();

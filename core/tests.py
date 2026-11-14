@@ -10,25 +10,24 @@ from .tickets import ticket_token,scan_ticket
 class PlatformTests(TestCase):
  def setUp(self):
   self.u=User.objects.create_user(username='eleve@grandlebrun.com',email='eleve@grandlebrun.com',password='UnMotDePasse!672',first_name='Camille',last_name='Martin',phone='+33612345678',email_verified=True,phone_verified=True)
-  self.e=Event.objects.create(name='Soirée',slug='soiree',access_code='GL2026',starts_at=timezone.now()+timedelta(days=30),venue='Salle',address='Bordeaux',capacity=2,price_cents=1500,published=True,sales_open=True)
+  self.e=Event.objects.create(name='Soirée',slug='soiree',starts_at=timezone.now()+timedelta(days=30),venue='Salle',address='Bordeaux',capacity=2,price_cents=1500,published=True,sales_open=True)
   self.c=SchoolClass.objects.create(name='Terminale A')
  def reg(self,u=None):
-  return pre_register(u or self.u,self.e,self.c,'adult','GL2026')
+  return pre_register(u or self.u,self.e,self.c,'adult')
  def test_email_exact_domain(self):
   self.assertEqual(school_email(' X@GrandLebrun.com '),'x@grandlebrun.com')
   for email in ['x@gmail.com','x@grandlebrun.com.evil.fr','x@sub.grandlebrun.com']:
    with self.assertRaises(ValidationError):school_email(email)
  def test_phone_normalization(self):
   self.assertEqual(normalize_phone('06 12 34 56 78'),'+33612345678')
- def test_requires_both_verifications(self):
-  for field in ['email_verified','phone_verified']:
-   setattr(self.u,field,False)
-   with self.assertRaises(ValidationError):self.reg()
-   setattr(self.u,field,True)
- def test_declaration_and_event_code(self):
+ def test_registration_requires_email_but_not_phone(self):
+  self.u.phone_verified=False;self.u.save()
+  self.assertEqual(self.reg().user,self.u)
+  self.u.email_verified=False;self.u.save()
+  with self.assertRaises(ValidationError):self.reg()
+ def test_declaration_is_required(self):
   for choice in ['', 'adult,minor']:
-   with self.assertRaises(ValidationError):pre_register(self.u,self.e,self.c,choice,'GL2026')
-  with self.assertRaises(ValidationError):pre_register(self.u,self.e,self.c,'adult','wrong')
+   with self.assertRaises(ValidationError):pre_register(self.u,self.e,self.c,choice)
  def test_challenge_single_use_and_limit(self):
   ch,code=issue_challenge(self.u,'sms')
   with self.assertRaises(ValidationError):issue_challenge(self.u,'sms')
@@ -122,12 +121,12 @@ from django.test import TransactionTestCase
 from django.db import connections
 class ConcurrencyTests(TransactionTestCase):
  def test_simultaneous_orders_respect_capacity(self):
-  e=Event.objects.create(name='Concurrent',slug='concurrent',access_code='C',starts_at=timezone.now()+timedelta(days=2),venue='Salle',address='Bordeaux',capacity=1,price_cents=1000,published=True,sales_open=True)
+  e=Event.objects.create(name='Concurrent',slug='concurrent',starts_at=timezone.now()+timedelta(days=2),venue='Salle',address='Bordeaux',capacity=1,price_cents=1000,published=True,sales_open=True)
   c=SchoolClass.objects.create(name='Classe test')
   regs=[]
   for i in range(8):
    u=User.objects.create_user(username=f'u{i}',email=f'u{i}@grandlebrun.com',phone=f'+3360000000{i}',email_verified=True,phone_verified=True)
-   regs.append(pre_register(u,e,c,'adult','C'))
+   regs.append(pre_register(u,e,c,'adult'))
   def buy(r):
    connections.close_all()
    try:create_order(r.user,e,[r.pk]);return 'ok'
@@ -136,9 +135,9 @@ class ConcurrencyTests(TransactionTestCase):
   with ThreadPoolExecutor(max_workers=8) as pool:results=list(pool.map(buy,regs))
   self.assertEqual(results.count('ok'),1);self.assertEqual(OrderLine.objects.filter(held=True).count(),1)
  def test_simultaneous_scans_accept_once(self):
-  e=Event.objects.create(name='Scans',slug='scans',access_code='S',starts_at=timezone.now()+timedelta(days=2),venue='Salle',address='Bordeaux',capacity=1,price_cents=1000,published=True,sales_open=True)
+  e=Event.objects.create(name='Scans',slug='scans',starts_at=timezone.now()+timedelta(days=2),venue='Salle',address='Bordeaux',capacity=1,price_cents=1000,published=True,sales_open=True)
   c=SchoolClass.objects.create(name='Classe scans');u=User.objects.create_user(username='s',email='s@grandlebrun.com',phone='+33612345678',email_verified=True,phone_verified=True)
-  r=pre_register(u,e,c,'adult','S');o=create_order(u,e,[r.pk]);o.checkout_id='c';o.save()
+  r=pre_register(u,e,c,'adult');o=create_order(u,e,[r.pk]);o.checkout_id='c';o.save()
   confirm_payment(o.pk,{'id':'c','checkout_reference':str(o.pk),'status':'PAID','amount':10,'currency':'EUR'})
   t=Ticket.objects.get();v=User.objects.create_user(username='scan',role='validator');Assignment.objects.create(user=v,event=e)
   d=Device.objects.create(user=v,approved=True,expires_at=timezone.now()+timedelta(hours=2));value=ticket_token(t)
@@ -218,6 +217,9 @@ class AdmissionTests(TestCase):
   response=self.client.get('/evenement/soiree/')
   self.assertContains(response,'pièce d’identité')
   self.assertContains(response,'Sainte-Marie Grand Lebrun')
+  self.assertContains(response,'Places limitées')
+  self.assertContains(response,'Aucune inscription ne sera possible sur place')
+  self.assertContains(response,'event-logo-source.png')
 
 class LongTicketTests(TestCase):
  setUp=PlatformTests.setUp
@@ -290,6 +292,93 @@ class AuthenticityTests(TestCase):
    with self.assertRaises(ValidationError) as caught:verify_qr_data(version+'.'+forged+'.'+signature)
   self.assertEqual(caught.exception.code,'signature_invalid')
 
+class RegistrationPurchaseVerificationTests(TestCase):
+ setUp=PlatformTests.setUp
+ def test_preregistration_requires_email_only(self):
+  event=Event.objects.create(name='Soirée',slug='email-only',starts_at=timezone.now()+timedelta(days=5),venue='Salle',address='Bordeaux',capacity=10,price_cents=1000,published=True,sales_open=True)
+  school_class=SchoolClass.objects.create(name='Première A')
+  user=User.objects.create_user(username='student@grandlebrun.com',email='student@grandlebrun.com',password='Vx9!qRm2',phone='+33612345679',email_verified=True,phone_verified=False)
+  registration=pre_register(user,event,school_class,'adult')
+  self.assertEqual(registration.user,user)
+
+ def test_new_account_does_not_get_created_for_short_password(self):
+  response=self.client.post('/inscription/',{'first_name':'Camille','last_name':'Martin','email':'camille@grandlebrun.com','phone':'0612345679','password1':'Short7!','password2':'Short7!'})
+  self.assertEqual(response.status_code,200)
+  self.assertFalse(User.objects.filter(email='camille@grandlebrun.com').exists())
+  self.assertEqual(Challenge.objects.count(),0)
+
+ def test_signup_eight_character_password_queues_email_only(self):
+  response=self.client.post('/inscription/',{'first_name':'Camille','last_name':'Martin','email':'camille@grandlebrun.com','phone':'0612345679','password1':'Vx9!qRm2','password2':'Vx9!qRm2'})
+  self.assertEqual(response.status_code,302)
+  user=User.objects.get(email='camille@grandlebrun.com')
+  self.assertFalse(user.email_verified)
+  self.assertFalse(user.phone_verified)
+  self.assertEqual(list(Challenge.objects.values_list('kind',flat=True)),['email'])
+
+ def test_login_uses_email_label(self):
+  self.assertContains(self.client.get('/connexion/'),'Adresse mail')
+
+ def test_account_verification_page_does_not_verify_phone(self):
+  user=User.objects.create_user(username='student@grandlebrun.com',email='student@grandlebrun.com',password='Vx9!qRm2')
+  self.client.force_login(user)
+  response=self.client.get('/verification/')
+  self.assertNotContains(response,'Code reçu par SMS')
+  self.assertNotContains(response,'Renvoyer le SMS')
+
+ def test_inscription_form_has_no_event_code(self):
+  event=Event.objects.create(name='Soirée',slug='no-event-code',starts_at=timezone.now()+timedelta(days=5),venue='Salle',address='Bordeaux',capacity=10,price_cents=1000,published=True)
+  user=User.objects.create_user(username='student@grandlebrun.com',email='student@grandlebrun.com',password='Vx9!qRm2',email_verified=True)
+  self.client.force_login(user)
+  response=self.client.get('/evenement/'+event.slug+'/inscription/')
+  self.assertEqual(response.status_code,200)
+  self.assertContains(response,'Classe')
+  self.assertNotContains(response,'Code événement')
+  self.assertContains(response,'Ton inscription')
+
+ def test_sms_code_is_requested_during_purchase_not_signup(self):
+  event=Event.objects.create(name='Soirée test',slug='purchase-sms',starts_at=timezone.now()+timedelta(days=5),venue='Salle',address='Bordeaux',capacity=10,price_cents=1000,published=True,is_test=True)
+  school_class=SchoolClass.objects.create(name='Première test')
+  user=User.objects.create_user(username='buyer@grandlebrun.com',email='buyer@grandlebrun.com',password='Vx9!qRm2',phone='+33612345679',email_verified=True)
+  pre_register(user,event,school_class,'adult')
+  self.client.force_login(user)
+  response=self.client.post('/evenement/'+event.slug+'/billets/',{'participants':''})
+  self.assertEqual(response.status_code,200)
+  self.assertContains(response,'CONFIRME LES TÉLÉPHONES')
+  challenge=Challenge.objects.get(user=user,kind='sms')
+  sms_job=Job.objects.get(key=f'challenge:{challenge.pk}')
+  code=sms_job.payload['code']
+  token=response.context['phone_verification']['token']
+  response=self.client.post('/evenement/'+event.slug+'/billets/',{'action':'verify_phones','phone_state':token,'phone_code_'+str(user.pk):code})
+  self.assertIsNotNone(response.context['quote'])
+  user.refresh_from_db();self.assertTrue(user.phone_verified)
+
+ def test_simulated_sumup_link_issues_test_tickets_without_payment(self):
+  from .payments import create_test_checkout_order
+  event=Event.objects.create(name='Soirée TEST',slug='sumup-test',starts_at=timezone.now()+timedelta(days=5),venue='Salle',address='Bordeaux',capacity=10,price_cents=1500,published=True,is_test=True)
+  registration=pre_register(self.u,event,self.c,'adult')
+  order=create_test_checkout_order(self.u,event,[registration.pk])
+  self.assertTrue(order.is_test);self.assertEqual(order.status,'creating');self.assertIn('/paiement-test/',order.checkout_url)
+  self.assertEqual(Ticket.objects.count(),0)
+  self.client.force_login(self.u)
+  response=self.client.post('/paiement-test/'+str(order.pk)+'/',{'action':'success'})
+  self.assertEqual(response.status_code,302)
+  order.refresh_from_db();self.assertEqual(order.status,'test')
+  ticket=Ticket.objects.get(line__order=order);self.assertTrue(ticket.is_test)
+  self.assertFalse(order.checkout_id)
+  self.assertEqual(set(Job.objects.filter(payload__ticket=str(ticket.pk)).values_list('kind',flat=True)),{'test_ticket_sms','test_email'})
+
+ def test_test_checkout_rechecks_phone_before_issuing_a_ticket(self):
+  from .payments import create_test_checkout_order
+  event=Event.objects.create(name='Soirée TEST',slug='sumup-test-phone-change',starts_at=timezone.now()+timedelta(days=5),venue='Salle',address='Bordeaux',capacity=10,price_cents=1500,published=True,is_test=True)
+  registration=pre_register(self.u,event,self.c,'adult')
+  order=create_test_checkout_order(self.u,event,[registration.pk])
+  self.u.phone_verified=False;self.u.save(update_fields=['phone_verified'])
+  self.client.force_login(self.u)
+  response=self.client.post('/paiement-test/'+str(order.pk)+'/',{'action':'success'})
+  self.assertEqual(response.status_code,302)
+  order.refresh_from_db();self.assertEqual(order.status,'creating')
+  self.assertFalse(Ticket.objects.filter(line__order=order).exists())
+
 class ManualAuthenticityTests(TestCase):
  setUp=PlatformTests.setUp
  reg=PlatformTests.reg
@@ -316,3 +405,156 @@ class MoneyDisplayTests(TestCase):
   self.e.price_cents=1550;self.e.save();order=create_order(self.u,self.e,[self.reg().pk])
   self.client.force_login(self.u)
   self.assertContains(self.client.get('/commande/'+str(order.pk)+'/'),'15.50 €')
+
+class OVHSmsTests(TestCase):
+ @override_settings(SMS_PROVIDER='ovh',OVH_SMS_ACCOUNT='sms-test',OVH_SMS_LOGIN='glorieux',OVH_SMS_PASSWORD='secret-test',OVH_SMS_SENDER='SNOOPUPIO')
+ def test_ovh_sends_credentials_in_post_body_and_checks_acceptance(self):
+  from unittest.mock import patch,Mock
+  from core.delivery import send_sms,sms_ready
+  self.assertTrue(sms_ready())
+  response=Mock(status_code=200);response.json.return_value={'status':100,'SmsIds':['123']}
+  with patch('core.delivery.requests.post',return_value=response) as post:
+   self.assertEqual(send_sms('+33612345678','Glorieux - Code : 123456'),'123')
+  self.assertNotIn('secret-test',post.call_args.args[0]);self.assertEqual(post.call_args.kwargs['data']['password'],'secret-test');self.assertFalse(post.call_args.kwargs['allow_redirects'])
+ @override_settings(SMS_PROVIDER='ovh',OVH_SMS_ACCOUNT='sms-test',OVH_SMS_LOGIN='glorieux',OVH_SMS_PASSWORD='secret-test')
+ def test_ovh_provider_refusal_is_not_success(self):
+  from unittest.mock import patch,Mock
+  from core.delivery import send_sms
+  response=Mock(status_code=200);response.json.return_value={'status':201,'message':'refused'}
+  with patch('core.delivery.requests.post',return_value=response):
+   with self.assertRaises(RuntimeError):send_sms('+33612345678','Test')
+
+class TestModeTests(TestCase):
+ setUp=PlatformTests.setUp
+ reg=PlatformTests.reg
+ def issue(self):
+  from core.payments import create_test_order
+  root=User.objects.create_superuser(username='test-root',email='testroot@example.com',password='Secret!2026')
+  self.e.is_test=True;self.e.save()
+  return create_test_order(root,self.e,self.u)
+ def test_only_superadmin_issues_fake_ticket(self):
+  from core.payments import create_test_order
+  self.e.is_test=True;self.e.save()
+  with self.assertRaises(PermissionDenied):create_test_order(self.u,self.e,self.u)
+ def test_test_orders_hold_no_capacity_or_payment(self):
+  ticket=self.issue()
+  self.assertTrue(ticket.is_test);self.assertEqual(ticket.line.order.status,'test');self.assertFalse(ticket.line.held)
+  self.assertTrue(ticket.reference.startswith('GL-T-'))
+ def test_test_ticket_refused_when_event_returns_to_real_mode(self):
+  ticket=self.issue();v=User.objects.create_user(username='tv',role='validator');Assignment.objects.create(user=v,event=self.e)
+  device=Device.objects.create(user=v,approved=True,expires_at=timezone.now()+timedelta(hours=3))
+  self.e.is_test=False;self.e.save()
+  result=scan_ticket(v,device,ticket_token(ticket),event_id=self.e.pk)
+  self.assertEqual(result['status'],'invalid');ticket.refresh_from_db();self.assertIsNone(ticket.used_at)
+ def test_real_payments_blocked_in_test_mode(self):
+  self.e.is_test=True;self.e.save()
+  with self.assertRaises(ValidationError):create_order(self.u,self.e,[self.reg().pk])
+
+class ConsultativeScanTests(TestCase):
+ setUp=PlatformTests.setUp
+ reg=PlatformTests.reg
+ paid_ticket=PlatformTests.paid_ticket
+ def test_consult_does_not_register_entry(self):
+  ticket=self.paid_ticket();v=User.objects.create_user(username='consult',role='validator');Assignment.objects.create(user=v,event=self.e)
+  d=Device.objects.create(user=v,approved=True,expires_at=timezone.now()+timedelta(hours=2))
+  result=scan_ticket(v,d,ticket_token(ticket),event_id=self.e.pk,mode='consult')
+  self.assertEqual(result['status'],'valid');ticket.refresh_from_db();self.assertIsNone(ticket.used_at)
+  result=scan_ticket(v,d,ticket_token(ticket),event_id=self.e.pk,mode='entry')
+  self.assertEqual(result['status'],'accepted');ticket.refresh_from_db();self.assertIsNotNone(ticket.used_at)
+  from core.models import Audit
+  self.assertEqual(Audit.objects.filter(action='scan_accepted').latest('pk').device,d)
+
+class EntryReportTests(TestCase):
+ setUp=PlatformTests.setUp
+ reg=PlatformTests.reg
+ paid_ticket=PlatformTests.paid_ticket
+ def test_entry_time_in_html_csv_and_scoped_pdf(self):
+  ticket=self.paid_ticket();org=User.objects.create_user(username='report',role='organizer',is_staff=True);Assignment.objects.create(user=org,event=self.e)
+  device=Device.objects.create(user=org,approved=True,expires_at=timezone.now()+timedelta(hours=2))
+  scan_ticket(org,device,ticket_token(ticket),event_id=self.e.pk);ticket.refresh_from_db()
+  self.client.force_login(org);stamp=timezone.localtime(ticket.used_at).strftime('%d/%m/%Y %H:%M:%S')
+  self.assertContains(self.client.get('/gestion/?event='+str(self.e.pk)),stamp)
+  response=self.client.get('/gestion/export/?event='+str(self.e.pk));self.assertIn(stamp,response.content.decode())
+  response=self.client.get('/gestion/pdf/?event='+str(self.e.pk));self.assertEqual(response.status_code,200);self.assertTrue(response.content.startswith(b'%PDF'))
+  outsider=User.objects.create_user(username='outsider',role='organizer',email='outsider@example.com');self.client.force_login(outsider)
+  self.assertEqual(self.client.get('/gestion/pdf/?event='+str(self.e.pk)).status_code,404)
+ def test_sms_balance_visible_only_to_superadmin(self):
+  from core.delivery import record_balance
+  record_balance('1321.35')
+  a=User.objects.create_user(username='balance-admin',role='admin',is_staff=True)
+  self.client.force_login(a);self.assertNotContains(self.client.get('/gestion/'),'COMPTEUR SMS OVH')
+  root=User.objects.create_superuser(username='balance-root',email='balance@example.com',password='Secret!2026');self.client.force_login(root)
+  self.assertContains(self.client.get('/gestion/'),'COMPTEUR SMS OVH');self.assertContains(self.client.get('/gestion/'),'1321,35')
+
+class PaymentIsolationTests(TestCase):
+ setUp=PlatformTests.setUp
+ reg=PlatformTests.reg
+ @override_settings(PAYMENTS_ENABLED=True,SUMUP_API_KEY='test',SUMUP_MERCHANT_CODE='merchant')
+ def test_event_switched_to_test_cannot_start_checkout(self):
+  from core.payments import begin_checkout
+  from unittest.mock import patch
+  order=create_order(self.u,self.e,[self.reg().pk]);self.e.is_test=True;self.e.save()
+  with patch('core.payments.requests.post') as post:
+   with self.assertRaises(ValidationError):begin_checkout(order)
+   post.assert_not_called()
+ def test_test_order_never_becomes_paid(self):
+  from core.payments import create_test_order
+  root=User.objects.create_superuser(username='guardroot',email='guard@example.com',password='Secret!2026');self.e.is_test=True;self.e.save()
+  ticket=create_test_order(root,self.e,self.u);order=ticket.line.order;order.checkout_id='fake';order.save()
+  with self.assertRaises(ValidationError):confirm_payment(order.pk,{'id':'fake','checkout_reference':str(order.pk),'status':'PAID','amount':15,'currency':'EUR'})
+  order.refresh_from_db();self.assertEqual(order.status,'test')
+ @override_settings(SMS_PROVIDER='ovh',OVH_SMS_ACCOUNT='test',OVH_SMS_LOGIN='test',OVH_SMS_PASSWORD='test',OVH_SMS_SENDER='',OVH_SMS_USE_SHORT_NUMBER=True)
+ def test_otp_ready_does_not_mean_ticket_link_ready(self):
+  from core.delivery import sms_ready,ticket_sms_ready
+  self.assertTrue(sms_ready());self.assertFalse(ticket_sms_ready())
+
+class OVHPlainResponseTests(TestCase):
+ @override_settings(SMS_PROVIDER='ovh',OVH_SMS_ACCOUNT='sms-test',OVH_SMS_LOGIN='glorieux',OVH_SMS_PASSWORD='secret-test',OVH_SMS_SENDER='DIGITALEVEN',OVH_SMS_USE_SHORT_NUMBER=False)
+ def test_successful_plain_response_updates_balance_without_retry(self):
+  from unittest.mock import patch,Mock
+  from core.delivery import send_sms
+  from core.models import SmsBalance
+  response=Mock(status_code=200,text='OK\n1320.35\n825513998\n');response.json.side_effect=ValueError()
+  with patch('core.delivery.requests.post',return_value=response) as post:self.assertEqual(send_sms('+33612345678','Glorieux - Code : 123456'),'825513998')
+  self.assertEqual(post.call_count,1);self.assertEqual(str(SmsBalance.objects.get(pk=1).credits),'1320.35')
+
+class SelfDeviceApprovalTests(TestCase):
+ def check(self,is_super):
+  user=User.objects.create_user(username='device-root' if is_super else 'device-validator',email='device-root@example.com' if is_super else 'device-v@example.com',is_superuser=is_super,is_staff=is_super,role='admin' if is_super else 'validator')
+  device=Device.objects.create(user=user,expires_at=timezone.now()+timedelta(hours=12))
+  self.client.force_login(user);session=self.client.session;session['device_id']=str(device.pk);session.save()
+  response=self.client.post('/validation/',{'action':'authorize_self'});device.refresh_from_db();return response,device
+ def test_superadmin_explicitly_approves_own_phone(self):
+  response,device=self.check(True);self.assertEqual(response.status_code,302);self.assertTrue(device.approved)
+ def test_validator_cannot_self_approve(self):
+  response,device=self.check(False);self.assertEqual(response.status_code,403);self.assertFalse(device.approved)
+
+class WelcomeScanTests(TestCase):
+ setUp=PlatformTests.setUp
+ reg=PlatformTests.reg
+ paid_ticket=PlatformTests.paid_ticket
+ def test_entry_returns_identity_and_server_entry_time(self):
+  ticket=self.paid_ticket();v=User.objects.create_user(username='welcome',role='validator');Assignment.objects.create(user=v,event=self.e)
+  d=Device.objects.create(user=v,approved=True,expires_at=timezone.now()+timedelta(hours=2))
+  result=scan_ticket(v,d,ticket_token(ticket),event_id=self.e.pk)
+  self.assertEqual(result['first_name'],'Camille');self.assertEqual(result['last_name'],'Martin');self.assertIn('bienvenue Camille',result['message'])
+  ticket.refresh_from_db();self.assertEqual(result['entry_at'],ticket.used_at.isoformat())
+
+class EmailAttachmentTests(TestCase):
+ def test_wire_email_contains_png_and_pdf_attachments(self):
+  from unittest.mock import patch,Mock
+  from email import policy
+  from email.parser import BytesParser
+  from core.delivery import send_email
+  client=Mock();client.send_email.return_value={'MessageId':'test-id'}
+  with patch('core.delivery.boto3.client',return_value=client):
+   self.assertEqual(send_email('test@example.com','Billet TEST','Votre billet',attachments=[('billet.png',b'png-data','image/png'),('billet.pdf',b'%PDF-test','application/pdf')]),'test-id')
+  raw=client.send_email.call_args.kwargs['Content']['Raw']['Data'];message=BytesParser(policy=policy.default).parsebytes(raw)
+  self.assertEqual([p.get_content_type() for p in message.iter_attachments()],['image/png','application/pdf'])
+  self.assertEqual([p.get_filename() for p in message.iter_attachments()],['billet.png','billet.pdf'])
+ def test_payment_queues_individual_email_beside_sms(self):
+  PlatformTests.setUp(self)
+  registration=pre_register(self.u,self.e,self.c,'adult');order=create_order(self.u,self.e,[registration.pk]);order.checkout_id='mail';order.save()
+  confirm_payment(order.pk,{'id':'mail','checkout_reference':str(order.pk),'status':'PAID','amount':15,'currency':'EUR'})
+  self.assertEqual(Job.objects.filter(kind='ticket_email',destination=self.u.email).count(),1)
+  self.assertEqual(Job.objects.filter(kind='ticket',destination=self.u.phone).count(),1)

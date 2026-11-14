@@ -86,8 +86,9 @@ class Scoped(admin.ModelAdmin):
 @admin.register(Event)
 class Events(Scoped):
  event_path='pk'
- list_display=['name','starts_at','capacity','price_cents','published','sales_open']
+ list_display=['name','starts_at','capacity','price_cents','published','sales_open','is_test']
  prepopulated_fields={'slug':('name',)}
+ def get_readonly_fields(self,r,obj=None):return () if r.user.is_superuser else ('is_test',)
  def get_queryset(self,r):return events_for(r.user)
 
 @admin.register(SchoolClass)
@@ -122,7 +123,7 @@ class Orders(Scoped):
    try:reconcile_order(order)
    except Exception:self.message_user(r,'Une commande nécessite une vérification manuelle.',level=messages.WARNING)
   Audit.objects.create(actor=r.user,action='reconciliation_admin',object_id=str(qs.count()))
- readonly_fields=['id','buyer','event','status','total_cents','currency','checkout_id','checkout_url','created_at','updated_at']
+ readonly_fields=['id','buyer','event','status','total_cents','currency','checkout_id','checkout_url','created_at','updated_at','is_test']
  def has_add_permission(self,r):return False
 
 @admin.register(Ticket)
@@ -130,7 +131,7 @@ class Tickets(Scoped):
  event_path='line__order__event'
  list_display=['id','participant','active','used_at']
  list_filter=['active','line__order__event']
- readonly_fields=['id','line','used_at','used_by','created_at']
+ readonly_fields=['id','line','used_at','used_by','created_at','is_test']
  exclude=['download_token']
  def participant(self,obj):return obj.line.registration.user.get_full_name()
  def has_add_permission(self,r):return False
@@ -152,7 +153,7 @@ class Devices(Scoped):
 
 @admin.register(Audit)
 class Audits(Scoped):
- list_display=['created_at','actor','event','action','object_id']
+ list_display=['created_at','actor','device','event','action','object_id']
  list_filter=['event','action']
  def has_add_permission(self,r):return False
  def has_change_permission(self,r,obj=None):return False

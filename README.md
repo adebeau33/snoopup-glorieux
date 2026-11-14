@@ -1,28 +1,29 @@
-# Glorieux — billetterie BDE
+# Le Glorieux — billetterie BDE
 
 Application responsive Bootstrap/Django pour `https://glorieux.snoopup.io`.
 
 ## Fonctionnement
 
-- Comptes étudiants réservés au domaine exact `grandlebrun.com` et aux deux exceptions exactes autorisées pour les tests (`alban.debeaupuis@gmail.com`, `alban@audiopro.fr`), email et téléphone obligatoires. Email par lien et téléphone par code SMS doivent être vérifiés avant préinscription/réservation.
-- Préinscription personnelle : code événement, classe et déclaration de majorité à la date de la soirée. Pour un achat groupé, chaque bénéficiaire doit terminer ce parcours personnel au préalable.
+- Comptes étudiants réservés au domaine exact `grandlebrun.com` et aux deux exceptions exactes autorisées pour les tests (`alban.debeaupuis@gmail.com`, `alban@audiopro.fr`). Nom, prénom, email et téléphone sont requis. L’email est vérifié avant l’inscription ; le téléphone est vérifié par SMS au moment de l’achat.
+- Mot de passe de 8 caractères minimum. Les erreurs de validation bloquent la création du compte ; une adresse mail non confirmée reste « à vérifier » (le superadmin initial est une exception de configuration).
+- Inscription personnelle à la soirée : classe et déclaration de majorité à la date de l’événement. Aucun code événement n’est demandé. Avant paiement, chaque bénéficiaire de l’achat groupé confirme son téléphone par SMS.
 - Paiement unique d’une commande de 1 à 20 bénéficiaires via SumUp hébergé. Tarif serveur, récapitulatif signé, jauge protégée par transaction. Vérification API après callback et réconciliation périodique, sans confiance dans le retour navigateur.
 - Billet individuel PNG et PDF, lien privé distinct du QR public, référence unique et signature HMAC-SHA-256 imprimées. QR autonome signé (référence, événement, prix, devise), vérification cryptographique avant recherche en base ; signature authentique inconnue en orange sans acceptation, signature invalide en rouge. Distribution SMS persistante, relances contrôlées.
 - QR public vers la page événement sans consommation. `/validation/` exige un compte habilité, une affectation et un navigateur approuvé, avec expiration. Événement contrôlé explicite ; refus des doubles scans.
 - `/gestion/` : KPI, effectifs et listes par classe, recherche et export CSV. `/admin/` : événements, classes, comptes, affectations, appareils, paiements, billets et envois. Le superadmin seul gère les administrateurs et voit les comptes privilégiés. Aucune option administrateur n’est affichée à l’inscription ; le superadmin accorde ensuite ce rôle aux comptes sélectionnés.
-- Partage natif/copie de lien et images Open Graph publiques, sans secret de billet. Polices et bibliothèques JS/CSS hébergées localement.
+- Partage natif/copie de lien et images Open Graph publiques, sans secret de billet. Les visuels rappellent que les places sont limitées, attribuées par ordre d’arrivée, et qu’aucune inscription ne sera possible sur place le soir même. Polices et bibliothèques JS/CSS hébergées localement.
 
 ## Configuration avant ouverture
 
 Modifier **sur AWS uniquement** `/etc/glorieux/glorieux.env`, puis redémarrer `glorieux.service`. Ne jamais committer ce fichier.
 
 1. Renseigner `SUMUP_API_KEY` et `SUMUP_MERCHANT_CODE`.
-2. Choisir un prestataire SMS. L’adaptateur fourni utilise Twilio : `SMS_PROVIDER=twilio`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`. Tout autre fournisseur nécessite un adaptateur dans `core/delivery.py`.
-3. Créer les classes réelles et l’événement : date/heure, lieu, adresse, code, tarif, jauge, identité/contact de l’organisateur et dates de vente.
+2. SMS OVH est configuré. Le fournisseur configuré est OVH, avec un utilisateur SMS dédié limité à l’IP AWS et l’expéditeur DIGITALEVEN. Un ancien adaptateur Twilio reste disponible : `SMS_PROVIDER=twilio`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`. Tout autre fournisseur nécessite un adaptateur dans `core/delivery.py`.
+3. Créer les classes réelles et l’événement : date/heure, lieu, adresse, tarif, jauge, identité/contact de l’organisateur et dates de vente.
 4. Compléter l’information juridique et les conditions de vente : identité de l’organisateur, données/conservation, admission des mineurs, remboursement et règle SAM. La déclaration du mineur n’est pas une autorisation parentale.
 5. Tester un paiement réel/sandbox et sa notification avec les identifiants fournis, les SMS, puis la caméra sur iPhone et Android avant de publier les ventes.
 
-Sans clés SumUp ou SMS, la vente est bloquée. Aucun faux paiement ou code de validation n’est utilisé en production. Les appels fournisseurs n’ont pas pu être validés de bout en bout sans ces accès.
+Les paiements réels sont explicitement en pause (`PAYMENTS_ENABLED=0`). Le mode TEST propose une page de paiement SumUp simulée, réservée aux événements en test : elle ne contacte pas SumUp, ne débite rien et émet des billets TEST seulement après confirmation. Aucun faux paiement n’est utilisé en production. Les appels fournisseurs n’ont pas pu être validés de bout en bout sans ces accès.
 
 AWS SES est configuré en `eu-north-1` avec l’identité `snoopup.io`, DKIM et un utilisateur IAM limité à l’envoi depuis `billetterie@snoopup.io`. Les secrets se trouvent exclusivement dans la configuration privée serveur. SES fournit l’envoi, pas une boîte de réception. Le suivi des rejets/plaintes, MAIL FROM personnalisé et la politique DMARC restent à finaliser avant exploitation des envois en volume.
 
@@ -59,3 +60,13 @@ Le test de charge isolé a mesuré 2 000 validations avec 8 threads en 16,98 s, 
 Les remboursements bancaires, transferts de billets et réentrées ne sont pas automatisés. Une annulation de billet ne rembourse pas la commande et ne libère pas automatiquement sa place. La remise en circulation d’une place payée doit suivre une règle validée. Une connexion Internet est obligatoire au contrôle. Un numéro de billet complet peut être saisi manuellement par un valideur autorisé.
 
 Le logo source reste inchangé ; l’écusson est présenté par masquage circulaire dans l’interface et composé dans les billets. L’original vectoriel permettrait un meilleur rendu. Aucune publicité ou publication sur les comptes sociaux n’est automatisée.
+
+## Mode TEST et contrôle sur téléphone
+
+La première soirée est actuellement en mode TEST, jauge1000, lieu147 rue des Petits Lapins33000 Bordeaux. Le superadmin active/désactive ce mode dans l’événement, puis génère un billetTEST depuis `/gestion/`. Le billet est enregistré et scannable en modeTEST, sans paiement et sans place réelle retenue. PNG/PDF portent BILLETTEST hors de la zoneQR ; type et référenceGL-T sont signés avec une clé dérivée distincte. Un billetTEST ne passe jamais en mode réel. Les déclarations fictives doivent être remplacées avant une réservation réelle.
+
+Téléphone : connexion sur `/validation/`, enregistrement et autorisation de l’appareil. Un superadmin dispose d’un bouton explicite pour autoriser son propre appareil pour12h. Choisir l’événement et le mode : Entrée automatique consomme le billet et journalise l’heure ; Consultation ne consomme rien. Le résultat affiche l’identité et un bip, puis attend un appui sur l’écran avant de relancer. Le son doit être activé par un geste utilisateur et dépend du volume du téléphone ; bouton de test disponible. La caméra native ouvre seulement l’événement public.
+
+Les listes HTML, CSV et PDF incluent les heures d’entrée, avec filtres par classe/événement. Audit conserve l’agent et l’appareil. Les emails des billets comportent PNG et PDF joints ; les SMS contiennent le lien sécurisé. Les codesOTP et liensSMS sont courts et ASCII pour rester dans un SMS. L’adaptateur OVH accepte les retours JSON et texteOK ; un retour incertain ne provoque pas de répétition automatique.
+
+Le superadmin voit les créditsOVH avec la date du dernier relevé. Ce solde partagé est mis à jour au relevé initial puis à chaque SMS accepté ici ; il ne constitue pas un polling des consommations des autres applications. Ne pas transférer les clésOVH globales vers le serveur.

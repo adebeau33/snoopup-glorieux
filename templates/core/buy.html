@@ -1,1 +1,41 @@
-{% extends 'base.html' %}{% block content %}<div class="form-shell"><p class="eyebrow">04 / LA BILLETTERIE</p><h1>{{ event.name }}</h1><p class="intro">{{ event.price }} € par participant. Chaque personne reçoit directement son billet par SMS.</p>{% if not ready %}<div class="alert alert-warning">La billetterie n’est pas encore ouverte. Ta préinscription est enregistrée, sans réservation de place.</div>{% endif %}<div class="alert alert-warning small admission">Merci de présenter une pièce d’identité à l’entrée afin de permettre la vérification de votre identité. Cette soirée privée est réservée aux membres de l’établissement Sainte-Marie Grand Lebrun munis d’un billet nominatif valide. Toute personne sans billet valide ou extérieure à l’établissement se verra refuser l’accès.</div><form method="post" class="panel fields">{% csrf_token %}<p><strong>Ton billet est inclus.</strong> Pour réserver pour tes amis, ajoute leurs emails scolaires. Ils doivent avoir validé leur compte et leur préinscription pour cette soirée.</p>{{ form.as_p }}{% if quote %}<input type="hidden" name="quote" value="{{ quote.token }}"><h2>RÉCAPITULATIF</h2>{% for r in quote.registrations %}<div class="status-row"><span>{{ r.user.get_full_name }}<br><small>Téléphone vérifié · se termine par {{ r.user.phone|slice:"-2:" }}</small></span><span>{{ event.price }} €</span></div>{% endfor %}<p class="mt-4"><strong>Total : {{ quote.total }} €</strong></p><p class="small muted">Vérifie les bénéficiaires avant de payer. Les billets seront envoyés individuellement.</p><button name="confirm" value="yes" class="btn btn-gold w-100">Payer {{ quote.total }} € avec SumUp →</button>{% else %}<button class="btn btn-navy w-100" {% if not ready %}disabled{% endif %}>Vérifier ma commande →</button>{% endif %}</form></div>{% endblock %}
+{% extends 'base.html' %}
+{% block content %}
+<div class="form-shell">
+  <p class="eyebrow">04 / LA BILLETTERIE</p>
+  <h1>{{ event.name }}</h1>
+  <p class="intro">{{ event.price }} € par participant. Chaque personne reçoit directement son billet par SMS et par email.</p>
+  {% if event.is_test %}<div class="alert alert-danger"><strong>MODE TEST.</strong> Le lien SumUp est simulé : aucun paiement ni débit réel ne sera effectué. Les billets portent la mention BILLET TEST.</div>{% elif not ready %}<div class="alert alert-warning">La billetterie n’est pas encore ouverte. Ton inscription est enregistrée sans réserver de place.</div>{% endif %}
+  <div class="alert alert-warning small admission">Merci de présenter une pièce d’identité à l’entrée afin de permettre la vérification de votre identité. Cette soirée privée est réservée aux membres de l’établissement Sainte-Marie Grand Lebrun munis d’un billet nominatif valide. Toute personne sans billet valide ou extérieure à l’établissement se verra refuser l’accès.</div>
+  {% if phone_verification %}
+    <form method="post" class="panel fields">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="verify_phones">
+      <input type="hidden" name="phone_state" value="{{ phone_verification.token }}">
+      <h2>CONFIRME LES TÉLÉPHONES.</h2>
+      <p class="small">Un code SMS a été demandé au numéro privé de chaque bénéficiaire. Saisis chaque code pour continuer. La vérification se fait uniquement lors de l’achat.</p>
+      {% for r in phone_verification.registrations %}
+        <div class="status-row"><span>{{ r.user.get_full_name }}<br><small>Numéro se terminant par {{ r.user.phone|slice:"-2:" }}</small></span></div>
+        {% if not r.user.phone_verified %}<label for="phone-code-{{ r.user_id }}">Code SMS de {{ r.user.first_name }}</label><input id="phone-code-{{ r.user_id }}" name="phone_code_{{ r.user_id }}" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>{% else %}<p class="small text-success">Téléphone déjà confirmé.</p>{% endif %}
+      {% endfor %}
+      <button class="btn btn-navy w-100 mt-3">Confirmer et continuer →</button>
+    </form>
+    <form method="post" class="mt-3">{% csrf_token %}<input type="hidden" name="phone_state" value="{{ phone_verification.token }}"><button name="action" value="resend_phones" class="btn btn-outline-navy w-100">Renvoyer les codes SMS</button></form>
+  {% elif quote %}
+    <form method="post" class="panel fields">
+      {% csrf_token %}<input type="hidden" name="quote" value="{{ quote.token }}">
+      <h2>RÉCAPITULATIF</h2>
+      {% for r in quote.registrations %}<div class="status-row"><span>{{ r.user.get_full_name }}<br><small>Inscription confirmée · téléphone vérifié</small></span><span>{{ event.price }} €</span></div>{% endfor %}
+      <p class="mt-4"><strong>Total : {{ quote.total }} €</strong></p>
+      <p class="small muted">Les billets seront envoyés individuellement par SMS et par email avec les fichiers PNG et PDF.</p>
+      {% if event.is_test %}<button name="confirm" value="yes" class="btn btn-gold w-100">Continuer vers le paiement SumUp simulé →</button>{% else %}<button name="confirm" value="yes" class="btn btn-gold w-100">Payer {{ quote.total }} € avec SumUp →</button>{% endif %}
+    </form>
+  {% else %}
+    <form method="post" class="panel fields">
+      {% csrf_token %}
+      <p><strong>Ton billet est inclus.</strong> Pour réserver pour tes amis, ajoute leurs emails scolaires. Ils doivent avoir confirmé leur adresse mail et leur inscription à cette soirée. Chacun confirmera son téléphone par SMS avant le paiement.</p>
+      {{ form.as_p }}
+      <button class="btn btn-navy w-100" {% if not ready %}disabled{% endif %}>Vérifier ma commande →</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

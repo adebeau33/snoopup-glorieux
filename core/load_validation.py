@@ -11,7 +11,7 @@ class ValidationLoadTests(TransactionTestCase):
  def test_2000_entries_eight_phones(self):
   with connection.cursor() as cursor:cursor.execute('PRAGMA journal_mode=WAL')
   now=timezone.now()
-  e=Event.objects.create(name='Charge isolée',slug='charge',starts_at=now+timedelta(days=1),access_code='X',venue='Test',address='Test',capacity=2000,price_cents=1000,published=True,sales_open=True)
+  e=Event.objects.create(name='Charge isolée',slug='charge',starts_at=now+timedelta(days=1),venue='Test',address='Test',capacity=2000,price_cents=1000,published=True,sales_open=True)
   c=SchoolClass.objects.create(name='Test charge')
   users=User.objects.bulk_create([User(username=f'charge{i}',email=f'charge{i}@grandlebrun.com',phone=f'+336{i:08}',first_name='Test',last_name=str(i),email_verified=True,phone_verified=True) for i in range(2000)])
   regs=Registration.objects.bulk_create([Registration(user=u,event=e,school_class=c,declaration='adult',declaration_text='Test isolé') for u in users])

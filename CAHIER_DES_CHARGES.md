@@ -42,7 +42,7 @@ Le périmètre exact des remboursements dans l’interface reste à décider ava
 
 ## 3. Inscription et commande
 
-1. L’acheteur saisit le code d’événement fourni par l’organisation.
+1. L’étudiant confirme son email, puis s’inscrit à l’événement en renseignant sa classe et sa déclaration. Aucun code événement n’est demandé.
 2. Il choisit le nombre de places.
 3. Il renseigne chaque participant : nom, prénom, téléphone obligatoire et classe.
 4. Le site présente les bénéficiaires, les coordonnées, le tarif et le montant total avant paiement.
@@ -52,13 +52,13 @@ Une commande peut contenir plusieurs participants et donne lieu à un paiement g
 
 Un numéro distinct est obligatoire par participant. Les numéros sont normalisés au format international pour reconnaître les doublons (`06…` et `+33 6…`). Proposition : un seul billet actif par numéro et par événement, y compris entre commandes différentes ; réutilisation possible pour un autre événement. La politique après annulation ou remboursement doit permettre un nouvel achat légitime.
 
-Le code d’événement limite l’accès à l’inscription ; il n’accorde aucun droit d’administration ou de validation.
+L’inscription à un événement publié est ouverte aux comptes éligibles. Aucun code d’événement n’est demandé.
 
 Mise à jour validée : l’étudiant crée un compte avec nom, prénom, adresse email et téléphone obligatoires. Les adresses dont le domaine exact n’est pas `grandlebrun.com` sont refusées côté serveur. Comparer le domaine sans tenir compte de la casse après validation syntaxique ; refuser les domaines ressemblants et sous-domaines non autorisés.
 
-Un code à usage unique est envoyé par SMS au téléphone pour valider le compte. Proposition : code de 6 chiffres, valable 5 minutes, 5 essais maximum, renvoi après 60 secondes et quotas par téléphone et adresse IP. Le code est lié au compte et au téléphone, stocké sous une forme protégée, invalidé après succès ou remplacement, et jamais journalisé. Un changement de téléphone nécessite une nouvelle validation. Les comptes ne peuvent ni réserver de place ni passer au paiement tant que le téléphone ET l’email scolaire ne sont pas vérifiés.
+Le téléphone est requis à la création du compte, mais il n’est pas validé à cette étape. Au moment de l’achat, un code SMS à usage unique confirme le téléphone de chaque bénéficiaire : 6 chiffres, valable 5 minutes, 5 essais maximum, renvoi après 60 secondes et quotas. Le code est lié au compte et au numéro, stocké sous forme protégée, invalidé après succès ou remplacement, et jamais journalisé. Un changement de téléphone exige une nouvelle confirmation au prochain achat.
 
-Double vérification obligatoire validée : le code SMS confirme le téléphone et un lien de vérification à usage unique envoyé à l’adresse `@grandlebrun.com` confirme l’email scolaire. Les deux validations doivent être acquises avant toute réservation. Le lien email doit expirer, être stocké sous une forme protégée et être invalidé après utilisation ou remplacement. Le renvoi est limité. Modifier l’email ou le téléphone invalide la vérification correspondante et bloque les nouvelles réservations jusqu’à sa nouvelle validation ; ne pas annuler automatiquement les billets déjà payés.
+La confirmation par lien email est obligatoire avant l’inscription à un événement. Le lien expire après 30 minutes, est stocké sous forme protégée et devient inutilisable après usage ou remplacement ; le renvoi est limité. Le SMS intervient uniquement au parcours d’achat, y compris pour chaque bénéficiaire d’un achat groupé. Modifier l’email invalide sa confirmation ; modifier le téléphone invalide sa confirmation pour les prochains achats. Aucun changement de coordonnées n’annule automatiquement les billets déjà payés.
 
 L’achat pour plusieurs personnes reste disponible. À préciser : chaque bénéficiaire doit-il posséder un compte validé avant paiement, ou l’acheteur peut-il renseigner un bénéficiaire qui finalisera sa validation ensuite ? Prévoir l’email scolaire obligatoire pour chaque bénéficiaire si tous doivent être étudiants de l’établissement. La méthode de connexion après inscription reste à choisir.
 
@@ -200,13 +200,13 @@ Propositions complémentaires : authentification renforcée pour superadmin et a
 3. Validation de l’approche SumUp hébergée et disponibilité du compte marchand.
 4. Prestataire SMS et budget d’envoi.
 5. Prix, jauge, dates de vente et durée des réservations.
-6. Classe à renseigner obligatoirement dans la préinscription après validation du compte ; liste des classes à fournir.
+6. Classe à renseigner obligatoirement dans la inscription après validation du compte ; liste des classes à fournir.
 7. Coordonnées de l’acheteur et accès à sa commande.
 8. Règles de remboursement, transfert de billet, sortie et éventuelle réentrée.
 9. Règle SAM, conditions d’admission et mentions définitives.
 10. Validation de la séparation administrateur/superadmin et des fonctions proposées.
 11. Durées de conservation, validité des liens et procédure de récupération d’accès.
-12. Méthode de connexion des étudiants et inscription des bénéficiaires d’un achat groupé ; les deux vérifications email et SMS sont obligatoires avant réservation.
+12. Méthode de connexion des étudiants et inscription des bénéficiaires d’un achat groupé ; l’email est confirmé avant inscription, le SMS avant paiement.
 13. Choix de la pile serveur et de la base, à proposer après confirmation de l’environnement cible.
 
 ## 12. Suite
@@ -237,14 +237,14 @@ Demandes complémentaires : afficher immédiatement les KPI dans l’interface a
 KPI par événement, visibles dès l’ouverture :
 - Participants avec billet payé et actif / jauge, et taux de remplissage.
 - Places encore disponibles, en tenant compte des réservations temporaires actives.
-- Préinscriptions sans billet payé, présentées séparément des ventes confirmées.
+- Inscriptions sans billet payé, présentées séparément des ventes confirmées.
 - Entrées validées / billets actifs et montant total des paiements confirmés.
 
 Ne pas confondre nombre de comptes, nombre de commandes et nombre de participants. Proposition : « inscrits » désigne les détenteurs d’un billet payé et actif. Le terme « sous-inscrits » est provisoirement interprété comme les sous-listes par classe et reste à clarifier s’il désigne un statut distinct.
 
 Listes : recherche par nom/prénom, filtres événement, classe, paiement et entrée ; effectif par classe et ouverture de la liste correspondante. Présenter les préinscrits et les inscrits payés séparément. Les exports et coordonnées restent réservés aux rôles habilités.
 
-Après validation du compte, l’étudiant remplit une préinscription propre à l’événement : classe obligatoire (liste administrable), puis une déclaration obligatoire avec deux choix exclusifs, sans choix présélectionné :
+Après validation du compte, l’étudiant remplit une inscription propre à l’événement : classe obligatoire (liste administrable), puis une déclaration obligatoire avec deux choix exclusifs, sans choix présélectionné :
 
 - « Je déclare être âgé(e) de dix-huit ans révolus à la date de l’événement. »
 - « Je déclare que je serai mineur(e) à la date de l’événement et avoir informé mon ou mes représentants légaux de mon inscription et de ma participation à cette soirée, ainsi que de sa date, de ses horaires et de son lieu. »
@@ -255,7 +255,7 @@ Conserver l’auteur de la déclaration, l’événement, le choix, la date de v
 
 La majorité est appréciée à la date de l’événement ; la déclaration seule ne vaut pas preuve d’âge pour la délivrance d’alcool. L’accès des mineurs et le contrôle d’âge doivent suivre les règles applicables au lieu et à l’événement. Référence : https://www.legifrance.gouv.fr/codes/affichCode.do?cidTexte=LEGITEXT000006072665&idSectionTA=LEGISCTA000006171207
 
-Recette supplémentaire : préinscription inaccessible avant validation du compte ; classe et choix de déclaration obligatoires côté serveur ; refus des choix simultanés ; KPI sans double comptage et exclusions des billets annulés ; filtres par classe conformes aux effectifs ; historique du texte accepté conservé.
+Recette supplémentaire : inscription inaccessible avant validation du compte ; classe et choix de déclaration obligatoires côté serveur ; refus des choix simultanés ; KPI sans double comptage et exclusions des billets annulés ; filtres par classe conformes aux effectifs ; historique du texte accepté conservé.
 
 ## 15. Accès infrastructure autorisés
 
@@ -265,6 +265,8 @@ Vérification des accès : répertoire `~/script/aws-script/` trouvé ; authenti
 
 
 ## 16. Identité visuelle et partage social
+
+Le logo de l’en-tête identifie le BDE ; le médaillon fourni pour la soirée, détouré sans modifier son dessin, est utilisé sur la page événement, ses visuels sociaux et les billets. Les communications publiques indiquent : « Places limitées, inscriptions traitées par ordre d’arrivée. Aucune inscription ne sera possible sur place le soir de l’événement. »
 
 Demandes validées : le site reprend au maximum les couleurs et l’esprit typographique du logo, avec un design adapté aux 17–20 ans, et permet de partager rapidement les événements sur les réseaux sociaux.
 
@@ -286,12 +288,12 @@ Interprétation retenue : « transférable dans les réseaux sociaux » signifie
 - Prévisualisation de lien avec titre, description et image de l’événement (métadonnées Open Graph).
 - Proposition : fournir un visuel vertical téléchargeable adapté aux stories et un visuel de publication, avec logo et informations pratiques, sans donnée personnelle.
 - Le partage est déclenché par l’utilisateur ; aucune publication automatique ni connexion à un compte social requise.
-- Partager exclusivement la page publique de l’événement, sans code d’accès privé, lien secret de téléchargement ni identifiant de billet. Le code d’événement reste requis pour s’inscrire.
+- Partager exclusivement la page publique de l’événement, sans code d’accès privé, lien secret de téléchargement ni identifiant de billet. Aucun code d’événement n’est requis pour s’inscrire.
 - Ne pas promettre un partage direct en story sur tous les réseaux : les possibilités dépendent du navigateur et des applications installées ; téléchargement du visuel et copie du lien restent disponibles.
 
 ### Recette complémentaire
 
-- Un compte ayant seulement validé son téléphone ne peut pas réserver ; même refus si seul l’email est validé. Les deux validations débloquent la réservation, sous réserve des autres conditions de préinscription.
+- Un email non confirmé bloque l’inscription. Un téléphone non confirmé bloque le paiement et déclenche l’envoi d’un code SMS pour chaque bénéficiaire sélectionné.
 - Vérifier ces blocages côté serveur sur toutes les routes de réservation et de création de paiement, sans permettre de contournement par appel direct.
 - Un lien email expiré, déjà utilisé ou remplacé ne valide pas le compte ; le parcours propose un renvoi contrôlé.
 - La page publique reste partageable sans compte ; sa prévisualisation n’expose aucune information de participant ni secret.
@@ -325,9 +327,9 @@ Après demande de limiter la mémoire : Django/Python 3.12, Bootstrap, SQLite WA
 
 Le superadmin propriétaire est créé. Son accès initial est conservé dans des fichiers privés exclus de Git. L’interface respecte les tons marine/or/crème et utilise des polices locales proches de l’identité du logo ; l’écusson source est présenté par masquage circulaire.
 
-Règle retenue pour l’achat groupé : chaque bénéficiaire doit terminer sa double vérification et sa propre préinscription avant achat. La déclaration des mineurs reste personnelle. Le téléphone complet des autres bénéficiaires n’est pas révélé lors de la recherche par email.
+Règle actuelle pour l’achat groupé : chaque bénéficiaire doit confirmer son email et compléter sa propre inscription avant l’achat. Au paiement, le titulaire du compte saisit les codes SMS reçus par chacun. La déclaration des mineurs reste personnelle ; les numéros des autres bénéficiaires sont masqués sauf les deux derniers chiffres.
 
-Fonctions implémentées : comptes, double vérification, préinscriptions, classes, administration et rôles, KPI et exports CSV, intégration SumUp hébergée avec réconciliation, billets PNG/PDF et signatures, envois persistants, contrôle par appareil et événement, partage public sans secrets, journal et sauvegarde locale quotidienne.
+Fonctions implémentées : comptes, confirmation email puis téléphone au paiement, inscriptions sans code événement, classes, administration et rôles, KPI et exports CSV, intégration SumUp hébergée avec réconciliation, page de paiement simulée pour les événements TEST, billets PNG/PDF et signatures, envois persistants, contrôle par appareil et événement, partage public sans secrets, journal et sauvegarde locale quotidienne.
 
 Réserves de mise en exploitation : renseigner SumUp et le prestataire SMS (adaptateur Twilio fourni), créer les classes et événements réels, compléter les conditions juridiques et la conservation, vérifier les caméras iPhone/Android et réaliser les tests fournisseurs de bout en bout. Les ventes sont bloquées sans les intégrations nécessaires. Remboursements, transferts, réémissions et réentrées restent à définir/automatiser séparément. MAIL FROM personnalisé, politique DMARC, suivi SES des rejets/plaintes et externalisation des sauvegardes restent à finaliser. Le rôle SES de la plateforme est limité à l’envoi depuis `billetterie@snoopup.io`.
 
@@ -338,7 +340,7 @@ Test de charge isolé sur AWS : 2 000 validations avec 8 threads en 17,06 second
 
 Première soirée : samedi 21 novembre 2026 à partir de 22 h, au « Death before sunlight », à Bordeaux. L’adresse exacte, le tarif, la jauge et les coordonnées de l’organisateur restent à compléter avant ouverture des ventes. L’événement est affiché avec ventes fermées ; aucun tarif gratuit n’est annoncé par défaut.
 
-Afficher sur la page événement, la préinscription, le récapitulatif avant paiement et sur les billets PNG/PDF :
+Afficher sur la page événement, la inscription, le récapitulatif avant paiement et sur les billets PNG/PDF :
 
 > Merci de présenter une pièce d’identité à l’entrée afin de permettre la vérification de votre identité. Cette soirée privée est réservée aux membres de l’établissement Sainte-Marie Grand Lebrun munis d’un billet nominatif valide. Toute personne sans billet valide ou extérieure à l’établissement se verra refuser l’accès.
 
@@ -352,7 +354,7 @@ Organisateur communiqué : **BDE Grand Lebrun — 164 avenue Charles de Gaulle, 
 
 ## 21. Exceptions de test et approbation des administrateurs
 
-Deux exceptions exactes à la règle du domaine scolaire sont autorisées : `alban.debeaupuis@gmail.com` (superadmin propriétaire existant) et `alban@audiopro.fr`. Aucun autre utilisateur de gmail.com ou audiopro.fr n’est accepté par cette exception. La liste est configurable côté serveur et ne dispense pas des deux vérifications pour réserver.
+Deux exceptions exactes à la règle du domaine scolaire sont autorisées : `alban.debeaupuis@gmail.com` (superadmin propriétaire existant) et `alban@audiopro.fr`. Aucun autre utilisateur de gmail.com ou audiopro.fr n’est accepté par cette exception. La liste est configurable côté serveur. L’email doit être confirmé ; le SMS est demandé au moment de l’achat.
 
 Aucune option ni demande de rôle administrateur n’apparaît à l’inscription. Tous les nouveaux comptes sont créés comme étudiants. Le superadmin peut ensuite sélectionner un utilisateur inscrit et lui accorder le rôle administrateur via une action réservée et journalisée. Un administrateur ne peut pas attribuer ce rôle. Aucun compte alban@audiopro.fr n’est créé sans ses coordonnées obligatoires ; l’adresse est autorisée à s’inscrire.
 
@@ -369,3 +371,16 @@ Vérifier la signature indépendamment de la base, avant de chercher la référe
 En saisie manuelle, la référence seule n’atteste pas l’authenticité : saisir également le prix payé et la signature imprimés, avec l’événement sélectionné, ou utiliser le lien complet du QR. Les mêmes vérifications s’appliquent ensuite. Copier référence et signature reste une copie du même billet ; le contrôle d’usage unique et d’identité reste nécessaire.
 
 Le billet est un pass graphique marine/or/crème avec logo, titres de style universitaire, éléments graphiques et zone QR contrastée, typographies locales, référence et signature lisibles. Sa hauteur s’adapte aux textes pour ne tronquer ni le QR ni les mentions. Un aperçu fictif est générable sans enregistrement et avec une clé de test distincte, marqué « APERÇU NON VALABLE » ; le tarif illustratif de cet aperçu n’est pas le tarif annoncé de la soirée.
+
+
+## 23. Évolutions validées et livrées
+
+- SumUp en pause, ventes réelles fermées via PAYMENTS_ENABLED=0. SMSOVH via utilisateur dédié glorieux limité à l’IP AWS ; expéditeur DIGITALEVEN actif. SMTPAWSSES pour les emails de vérification et les billets.
+- Jauge1000 et adresse du lieu147 rue des Petits Lapins33000 Bordeaux. Première soirée21 novembre2026 dès22h.
+- Compteur de créditsOVH réservé superadmin, solde horodaté du dernier relevé/envoi accepté ; solde du compte partagé, consommations d’autres applications non interrogées en continu.
+- ModeTEST réservé superadmin : vrais enregistrements de test, génération sans paiement ni réservation de place réelle. Bandeau BILLETTEST horsQR. L’appellation TEST remplace « fake » à la demande de l’utilisateur. Signature et typeTEST empêchent toute entrée réelle avec un billet de test.
+- Appareils autorisés ; le superadmin peut autoriser explicitement son propre téléphone dans l’écran de contrôle.
+- Modes Entrée automatique et Consultation. Horodatages d’entrée dans HTML/CSV/PDF et journal de l’appareil/valideur.
+- Après vérification : bip fort (selon volume et autorisation audio du téléphone), nom/prénom et bienvenue au prénom pour un billet valide. Résultat plein écran maintenu jusqu’à un appui ; aucun redémarrage automatique. Son de refus distinct.
+- Boutons œil sur les deux mots de passe d’inscription.
+- Billets envoyés par lienSMS et PNG/PDF directement joints à l’email, y compris pour les tests. Envoi test explicitement autorisé vers le numéro fourni par l’utilisateur et son Gmail ; ne pas enregistrer ce numéro dans Git.

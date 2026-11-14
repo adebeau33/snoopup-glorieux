@@ -5,7 +5,7 @@ from django.db import transaction
 from django.db.models import Case,When,Value,IntegerField
 from django.utils import timezone
 from core.models import Job,Order
-from core.delivery import deliver
+from core.delivery import deliver,ProviderDeliveryUncertain
 from core.payments import reconcile_order
 class Command(BaseCommand):
  help='Traite les envois persistants et réconcilie les paiements en attente.'
@@ -27,7 +27,7 @@ class Command(BaseCommand):
     except Exception as exc:
      # Persist only exception class, never provider request text (may contain secrets).
      j.last_error=type(exc).__name__
-     j.state='failed' if j.attempts>=5 else 'pending'
+     j.state='review' if isinstance(exc,ProviderDeliveryUncertain) else ('failed' if j.attempts>=5 else 'pending')
      j.next_at=timezone.now()+timedelta(seconds=min(3600,60*2**j.attempts))
     j.save()
    payment_deadline=time.monotonic()+40

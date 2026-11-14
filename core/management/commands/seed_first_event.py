@@ -1,6 +1,5 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import secrets
 from django.core.management.base import BaseCommand
 from core.models import Event
 class Command(BaseCommand):
@@ -8,9 +7,9 @@ class Command(BaseCommand):
  def handle(self,*args,**kwargs):
   event,created=Event.objects.get_or_create(slug='premiere-soiree-21-novembre-2026',defaults={
    'name':'Première soirée Glorieux',
-   'description':'Rendez-vous le samedi 21 novembre 2026 à partir de 22 h au Death before sunlight, à Bordeaux. Les informations pratiques et l’ouverture de la billetterie seront annoncées ici.',
+   'description':'Rendez-vous le samedi 21 novembre 2026 à partir de 22 h au Death before sunlight, à Bordeaux. Les places sont limitées : les inscriptions sont traitées par ordre d’arrivée. Aucune inscription ne sera possible sur place le soir de l’événement.',
    'starts_at':datetime(2026,11,21,22,0,tzinfo=ZoneInfo('Europe/Paris')),
-   'venue':'Death before sunlight','address':'Bordeaux — adresse précise à confirmer',
-   'organizer_name':'BDE Grand Lebrun','organizer_address':'164 avenue Charles de Gaulle, 33200 Bordeaux-Caudéran','capacity':0,'price_cents':0,'published':True,'sales_open':False,'access_code':secrets.token_urlsafe(12)})
-  Event.objects.filter(pk=event.pk).update(organizer_name='BDE Grand Lebrun',organizer_address='164 avenue Charles de Gaulle, 33200 Bordeaux-Caudéran')
-  self.stdout.write('Première soirée créée, ventes fermées, tarif et jauge à renseigner.' if created else 'Première soirée déjà présente : aucune donnée modifiée.')
+   'venue':'Death before sunlight','address':'147 rue des Petits Lapins, 33000 Bordeaux',
+   'organizer_name':'BDE Grand Lebrun','organizer_address':'164 avenue Charles de Gaulle, 33200 Bordeaux-Caudéran','capacity':1000,'price_cents':0,'published':True,'sales_open':False})
+  Event.objects.filter(pk=event.pk).update(capacity=1000,address='147 rue des Petits Lapins, 33000 Bordeaux',organizer_name='BDE Grand Lebrun',organizer_address='164 avenue Charles de Gaulle, 33200 Bordeaux-Caudéran',description='Rendez-vous le samedi 21 novembre 2026 à partir de 22 h au Death before sunlight, à Bordeaux. Les places sont limitées : les inscriptions sont traitées par ordre d’arrivée. Aucune inscription ne sera possible sur place le soir de l’événement.')
+  self.stdout.write('Première soirée créée, jauge 1000, ventes fermées et tarif à renseigner.' if created else 'Première soirée actualisée : jauge 1000 et adresse enregistrées.')

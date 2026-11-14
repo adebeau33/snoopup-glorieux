@@ -16,8 +16,6 @@ class User(AbstractUser):
   if not self.email:self.email=None
   if not self.phone:self.phone=None
   super().save(*args,**kwargs)
- @property
- def verified(self):return self.email_verified and self.phone_verified
 
 class SchoolClass(models.Model):
  name=models.CharField('Classe',max_length=80,unique=True)
@@ -29,7 +27,6 @@ class Event(models.Model):
  name=models.CharField('Nom',max_length=200)
  slug=models.SlugField(unique=True)
  description=models.TextField('Description',blank=True)
- access_code=models.CharField('Code événement',max_length=80)
  starts_at=models.DateTimeField('Date et heure')
  venue=models.CharField('Lieu',max_length=200)
  address=models.TextField('Adresse')
@@ -40,6 +37,7 @@ class Event(models.Model):
  price_cents=models.PositiveIntegerField('Prix en centimes')
  published=models.BooleanField('Publié',default=False)
  sales_open=models.BooleanField('Ventes ouvertes',default=False)
+ is_test=models.BooleanField('Mode TEST (superadmin)',default=False)
  sales_start=models.DateTimeField('Début des ventes',null=True,blank=True)
  sales_end=models.DateTimeField('Fin des ventes',null=True,blank=True)
  class Meta:ordering=['starts_at'];verbose_name='événement'
@@ -61,7 +59,7 @@ class Registration(models.Model):
  declaration_text=models.TextField()
  declaration_version=models.CharField(max_length=30,default='2026-11-14')
  created_at=models.DateTimeField(auto_now_add=True)
- class Meta:constraints=[models.UniqueConstraint(fields=['event','user'],name='unique_registration')];verbose_name='préinscription'
+ class Meta:constraints=[models.UniqueConstraint(fields=['event','user'],name='unique_registration')];verbose_name='inscription'
  def __str__(self):return f'{self.user.get_full_name()} — {self.event}'
 
 class Challenge(models.Model):
@@ -75,11 +73,12 @@ class Challenge(models.Model):
  consumed=models.BooleanField(default=False)
 
 class Order(models.Model):
- STATUS=[('creating','Création paiement'),('pending','Paiement en attente'),('paid','Payée'),('failed','Échouée'),('review','À examiner')]
+ STATUS=[('creating','Création paiement'),('pending','Paiement en attente'),('paid','Payée'),('failed','Échouée'),('review','À examiner'),('test','TEST — sans paiement')]
  id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
  buyer=models.ForeignKey(User,on_delete=models.PROTECT)
  event=models.ForeignKey(Event,on_delete=models.PROTECT)
  status=models.CharField(max_length=16,choices=STATUS,default='creating')
+ is_test=models.BooleanField(default=False)
  total_cents=models.PositiveIntegerField()
  currency=models.CharField(max_length=3,default='EUR')
  checkout_id=models.CharField(max_length=100,blank=True,db_index=True)
@@ -100,13 +99,14 @@ class OrderLine(models.Model):
 class Ticket(models.Model):
  id=models.UUIDField(primary_key=True,default=uuid.uuid4,editable=False)
  line=models.OneToOneField(OrderLine,on_delete=models.PROTECT,related_name='ticket')
+ is_test=models.BooleanField(default=False,editable=False)
  download_token=models.CharField(max_length=80,default=token,unique=True,editable=False)
  active=models.BooleanField(default=True)
  used_at=models.DateTimeField(null=True,blank=True)
  used_by=models.ForeignKey(User,on_delete=models.PROTECT,null=True,blank=True,related_name='validated_tickets')
  created_at=models.DateTimeField(auto_now_add=True)
  @property
- def reference(self):return 'GL-'+str(self.pk).upper()
+ def reference(self):return ('GL-T-' if self.is_test else 'GL-')+str(self.pk).upper()
  class Meta:verbose_name='billet'
 
 class Device(models.Model):
@@ -119,6 +119,7 @@ class Device(models.Model):
  class Meta:verbose_name='appareil de validation'
 
 class Audit(models.Model):
+ device=models.ForeignKey(Device,on_delete=models.SET_NULL,null=True,blank=True)
  actor=models.ForeignKey(User,on_delete=models.SET_NULL,null=True)
  event=models.ForeignKey(Event,on_delete=models.SET_NULL,null=True)
  action=models.CharField(max_length=100)
@@ -144,3 +145,8 @@ class RateLimit(models.Model):
  key=models.CharField(max_length=160,unique=True)
  count=models.PositiveIntegerField(default=0)
  reset_at=models.DateTimeField()
+
+class SmsBalance(models.Model):
+ credits=models.DecimalField(max_digits=12,decimal_places=2)
+ observed_at=models.DateTimeField()
+ source=models.CharField(max_length=30,default='ovh')

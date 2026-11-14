@@ -65,13 +65,15 @@ def verify_challenge(user,kind,code):
    Job.objects.filter(key=f'challenge:{ch.pk}').update(payload={})
   ch.save();return ok
 
-def pre_register(user,event,school_class,declaration,code):
- if not user.verified:raise ValidationError('Vérifiez votre email et votre téléphone avant de réserver.')
+def pre_register(user,event,school_class,declaration):
+ if not user.email_verified:raise ValidationError('Vérifiez votre adresse mail avant de vous inscrire.')
  if not event.published or event.starts_at<=timezone.now():raise ValidationError('Événement indisponible.')
- if not hmac.compare_digest(code.strip(),event.access_code):raise ValidationError('Code événement incorrect.')
  if declaration not in DECLARATIONS:raise ValidationError('Choisissez votre déclaration de majorité.')
  if not school_class or not school_class.active:raise ValidationError('Choisissez une classe valide.')
  existing=Registration.objects.filter(user=user,event=event).first()
+ if existing and existing.declaration_version=='test' and not event.is_test:
+  existing.school_class=school_class;existing.declaration=declaration;existing.declaration_text=DECLARATIONS[declaration];existing.declaration_version='2026-11-14';existing.save()
+  Audit.objects.create(actor=user,event=event,action='preinscription_reelle_apres_test',object_id=str(existing.pk));return existing
  if existing:return existing
  r=Registration.objects.create(user=user,event=event,school_class=school_class,declaration=declaration,declaration_text=DECLARATIONS[declaration])
  Audit.objects.create(actor=user,event=event,action='preinscription',object_id=str(r.pk));return r
