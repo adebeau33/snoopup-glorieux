@@ -2,7 +2,7 @@ from django.contrib import admin,messages
 from django.contrib.auth.admin import UserAdmin
 from django.utils import timezone
 from django.core.exceptions import PermissionDenied
-from .models import User,Event,SchoolClass,Assignment,Registration,Order,OrderLine,Ticket,Device,Audit,Job
+from .models import User,Event,Assignment,Registration,Order,OrderLine,Ticket,Device,Audit,Job
 from .services import events_for
 
 admin.site.site_header='GLORIEUX · Administration'
@@ -91,18 +91,12 @@ class Events(Scoped):
  def get_readonly_fields(self,r,obj=None):return () if r.user.is_superuser else ('is_test',)
  def get_queryset(self,r):return events_for(r.user)
 
-@admin.register(SchoolClass)
-class Classes(Scoped):
- event_path=None
- list_display=['name','active']
- def get_queryset(self,r):return SchoolClass.objects.all() if r.user.is_superuser or r.user.role=='admin' else SchoolClass.objects.none()
-
 @admin.register(Registration)
 class Registrations(Scoped):
- list_display=['user','event','school_class','declaration','created_at']
- list_filter=['event','school_class','declaration']
+ list_display=['user','event','declaration','created_at']
+ list_filter=['event','declaration']
  search_fields=['user__first_name','user__last_name','user__email']
- readonly_fields=['user','event','school_class','declaration','declaration_text','declaration_version','created_at']
+ readonly_fields=['user','event','declaration','declaration_text','declaration_version','created_at']
  def has_add_permission(self,r):return False
 
 @admin.register(Assignment)

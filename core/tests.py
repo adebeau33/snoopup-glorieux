@@ -2,7 +2,7 @@ from datetime import timedelta
 from django.test import TestCase,override_settings
 from django.utils import timezone
 from django.core.exceptions import ValidationError,PermissionDenied
-from .models import User,Event,SchoolClass,Registration,Order,OrderLine,Ticket,Device,Assignment,Job,Challenge
+from .models import User,Event,Registration,Order,OrderLine,Ticket,Device,Assignment,Job,Challenge
 from .services import normalize_phone,school_email,issue_challenge,verify_challenge,pre_register
 from .payments import create_order,confirm_payment
 from .tickets import ticket_token,scan_ticket
@@ -11,9 +11,8 @@ class PlatformTests(TestCase):
  def setUp(self):
   self.u=User.objects.create_user(username='eleve@grandlebrun.com',email='eleve@grandlebrun.com',password='UnMotDePasse!672',first_name='Camille',last_name='Martin',phone='+33612345678',email_verified=True,phone_verified=True)
   self.e=Event.objects.create(name='Soirée',slug='soiree',starts_at=timezone.now()+timedelta(days=30),venue='Salle',address='Bordeaux',capacity=2,price_cents=1500,published=True,sales_open=True)
-  self.c=SchoolClass.objects.create(name='Terminale A')
  def reg(self,u=None):
-  return pre_register(u or self.u,self.e,self.c,'adult')
+  return pre_register(u or self.u,self.e,'adult')
  def test_email_exact_domain(self):
   self.assertEqual(school_email(' X@GrandLebrun.com '),'x@grandlebrun.com')
   for email in ['x@gmail.com','x@grandlebrun.com.evil.fr','x@sub.grandlebrun.com']:
@@ -27,7 +26,7 @@ class PlatformTests(TestCase):
   with self.assertRaises(ValidationError):self.reg()
  def test_declaration_is_required(self):
   for choice in ['', 'adult,minor']:
-   with self.assertRaises(ValidationError):pre_register(self.u,self.e,self.c,choice)
+   with self.assertRaises(ValidationError):pre_register(self.u,self.e,choice)
  def test_challenge_single_use_and_limit(self):
   ch,code=issue_challenge(self.u,'sms')
   with self.assertRaises(ValidationError):issue_challenge(self.u,'sms')
@@ -122,11 +121,10 @@ from django.db import connections
 class ConcurrencyTests(TransactionTestCase):
  def test_simultaneous_orders_respect_capacity(self):
   e=Event.objects.create(name='Concurrent',slug='concurrent',starts_at=timezone.now()+timedelta(days=2),venue='Salle',address='Bordeaux',capacity=1,price_cents=1000,published=True,sales_open=True)
-  c=SchoolClass.objects.create(name='Classe test')
   regs=[]
   for i in range(8):
    u=User.objects.create_user(username=f'u{i}',email=f'u{i}@grandlebrun.com',phone=f'+3360000000{i}',email_verified=True,phone_verified=True)
-   regs.append(pre_register(u,e,c,'adult'))
+   regs.append(pre_register(u,e,'adult'))
   def buy(r):
    connections.close_all()
    try:create_order(r.user,e,[r.pk]);return 'ok'
@@ -136,8 +134,8 @@ class ConcurrencyTests(TransactionTestCase):
   self.assertEqual(results.count('ok'),1);self.assertEqual(OrderLine.objects.filter(held=True).count(),1)
  def test_simultaneous_scans_accept_once(self):
   e=Event.objects.create(name='Scans',slug='scans',starts_at=timezone.now()+timedelta(days=2),venue='Salle',address='Bordeaux',capacity=1,price_cents=1000,published=True,sales_open=True)
-  c=SchoolClass.objects.create(name='Classe scans');u=User.objects.create_user(username='s',email='s@grandlebrun.com',phone='+33612345678',email_verified=True,phone_verified=True)
-  r=pre_register(u,e,c,'adult');o=create_order(u,e,[r.pk]);o.checkout_id='c';o.save()
+  u=User.objects.create_user(username='s',email='s@grandlebrun.com',phone='+33612345678',email_verified=True,phone_verified=True)
+  r=pre_register(u,e,'adult');o=create_order(u,e,[r.pk]);o.checkout_id='c';o.save()
   confirm_payment(o.pk,{'id':'c','checkout_reference':str(o.pk),'status':'PAID','amount':10,'currency':'EUR'})
   t=Ticket.objects.get();v=User.objects.create_user(username='scan',role='validator');Assignment.objects.create(user=v,event=e)
   d=Device.objects.create(user=v,approved=True,expires_at=timezone.now()+timedelta(hours=2));value=ticket_token(t)
@@ -296,9 +294,8 @@ class RegistrationPurchaseVerificationTests(TestCase):
  setUp=PlatformTests.setUp
  def test_preregistration_requires_email_only(self):
   event=Event.objects.create(name='Soirée',slug='email-only',starts_at=timezone.now()+timedelta(days=5),venue='Salle',address='Bordeaux',capacity=10,price_cents=1000,published=True,sales_open=True)
-  school_class=SchoolClass.objects.create(name='Première A')
   user=User.objects.create_user(username='student@grandlebrun.com',email='student@grandlebrun.com',password='Vx9!qRm2',phone='+33612345679',email_verified=True,phone_verified=False)
-  registration=pre_register(user,event,school_class,'adult')
+  registration=pre_register(user,event,'adult')
   self.assertEqual(registration.user,user)
 
  def test_new_account_does_not_get_created_for_short_password(self):
@@ -331,15 +328,14 @@ class RegistrationPurchaseVerificationTests(TestCase):
   self.client.force_login(user)
   response=self.client.get('/evenement/'+event.slug+'/inscription/')
   self.assertEqual(response.status_code,200)
-  self.assertContains(response,'Classe')
+  self.assertNotContains(response,'Classe')
   self.assertNotContains(response,'Code événement')
   self.assertContains(response,'Ton inscription')
 
  def test_sms_code_is_requested_during_purchase_not_signup(self):
   event=Event.objects.create(name='Soirée test',slug='purchase-sms',starts_at=timezone.now()+timedelta(days=5),venue='Salle',address='Bordeaux',capacity=10,price_cents=1000,published=True,is_test=True)
-  school_class=SchoolClass.objects.create(name='Première test')
   user=User.objects.create_user(username='buyer@grandlebrun.com',email='buyer@grandlebrun.com',password='Vx9!qRm2',phone='+33612345679',email_verified=True)
-  pre_register(user,event,school_class,'adult')
+  pre_register(user,event,'adult')
   self.client.force_login(user)
   response=self.client.post('/evenement/'+event.slug+'/billets/',{'participants':''})
   self.assertEqual(response.status_code,200)
@@ -355,7 +351,7 @@ class RegistrationPurchaseVerificationTests(TestCase):
  def test_simulated_sumup_link_issues_test_tickets_without_payment(self):
   from .payments import create_test_checkout_order
   event=Event.objects.create(name='Soirée TEST',slug='sumup-test',starts_at=timezone.now()+timedelta(days=5),venue='Salle',address='Bordeaux',capacity=10,price_cents=1500,published=True,is_test=True)
-  registration=pre_register(self.u,event,self.c,'adult')
+  registration=pre_register(self.u,event,'adult')
   order=create_test_checkout_order(self.u,event,[registration.pk])
   self.assertTrue(order.is_test);self.assertEqual(order.status,'creating');self.assertIn('/paiement-test/',order.checkout_url)
   self.assertEqual(Ticket.objects.count(),0)
@@ -370,7 +366,7 @@ class RegistrationPurchaseVerificationTests(TestCase):
  def test_test_checkout_rechecks_phone_before_issuing_a_ticket(self):
   from .payments import create_test_checkout_order
   event=Event.objects.create(name='Soirée TEST',slug='sumup-test-phone-change',starts_at=timezone.now()+timedelta(days=5),venue='Salle',address='Bordeaux',capacity=10,price_cents=1500,published=True,is_test=True)
-  registration=pre_register(self.u,event,self.c,'adult')
+  registration=pre_register(self.u,event,'adult')
   order=create_test_checkout_order(self.u,event,[registration.pk])
   self.u.phone_verified=False;self.u.save(update_fields=['phone_verified'])
   self.client.force_login(self.u)
@@ -554,7 +550,7 @@ class EmailAttachmentTests(TestCase):
   self.assertEqual([p.get_filename() for p in message.iter_attachments()],['billet.png','billet.pdf'])
  def test_payment_queues_individual_email_beside_sms(self):
   PlatformTests.setUp(self)
-  registration=pre_register(self.u,self.e,self.c,'adult');order=create_order(self.u,self.e,[registration.pk]);order.checkout_id='mail';order.save()
+  registration=pre_register(self.u,self.e,'adult');order=create_order(self.u,self.e,[registration.pk]);order.checkout_id='mail';order.save()
   confirm_payment(order.pk,{'id':'mail','checkout_reference':str(order.pk),'status':'PAID','amount':15,'currency':'EUR'})
   self.assertEqual(Job.objects.filter(kind='ticket_email',destination=self.u.email).count(),1)
   self.assertEqual(Job.objects.filter(kind='ticket',destination=self.u.phone).count(),1)

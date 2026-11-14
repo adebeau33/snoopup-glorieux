@@ -17,12 +17,6 @@ class User(AbstractUser):
   if not self.phone:self.phone=None
   super().save(*args,**kwargs)
 
-class SchoolClass(models.Model):
- name=models.CharField('Classe',max_length=80,unique=True)
- active=models.BooleanField(default=True)
- class Meta:verbose_name='classe';ordering=['name']
- def __str__(self):return self.name
-
 class Event(models.Model):
  name=models.CharField('Nom',max_length=200)
  slug=models.SlugField(unique=True)
@@ -54,7 +48,6 @@ class Registration(models.Model):
  DECLARATIONS=[('adult','Majeur à la date de la soirée'),('minor','Mineur, représentants légaux informés')]
  event=models.ForeignKey(Event,on_delete=models.PROTECT)
  user=models.ForeignKey(User,on_delete=models.PROTECT)
- school_class=models.ForeignKey(SchoolClass,on_delete=models.PROTECT,verbose_name='Classe')
  declaration=models.CharField(max_length=8,choices=DECLARATIONS)
  declaration_text=models.TextField()
  declaration_version=models.CharField(max_length=30,default='2026-11-14')

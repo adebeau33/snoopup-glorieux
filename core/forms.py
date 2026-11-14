@@ -1,6 +1,6 @@
 from django import forms
 from django.contrib.auth.forms import UserCreationForm
-from .models import User,SchoolClass
+from .models import User
 from .services import school_email,normalize_phone,DECLARATIONS
 
 class RegisterForm(UserCreationForm):
@@ -27,7 +27,6 @@ class RegisterForm(UserCreationForm):
   return u
 
 class EventRegistrationForm(forms.Form):
- school_class=forms.ModelChoiceField(label='Classe',queryset=SchoolClass.objects.filter(active=True))
  declaration=forms.ChoiceField(label='À la date de la soirée',choices=list(DECLARATIONS.items()),widget=forms.RadioSelect)
 
 class DeviceForm(forms.Form):

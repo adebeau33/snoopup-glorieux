@@ -42,9 +42,9 @@ Le périmètre exact des remboursements dans l’interface reste à décider ava
 
 ## 3. Inscription et commande
 
-1. L’étudiant confirme son email, puis s’inscrit à l’événement en renseignant sa classe et sa déclaration. Aucun code événement n’est demandé.
+1. L’étudiant confirme son email, puis s’inscrit à l’événement en faisant sa déclaration. Aucun code événement n’est demandé.
 2. Il choisit le nombre de places.
-3. Il renseigne chaque participant : nom, prénom, téléphone obligatoire et classe.
+3. Il renseigne chaque participant : nom, prénom, téléphone obligatoire.
 4. Le site présente les bénéficiaires, les coordonnées, le tarif et le montant total avant paiement.
 5. Le serveur réserve temporairement les places et initie le paiement.
 
@@ -200,14 +200,14 @@ Propositions complémentaires : authentification renforcée pour superadmin et a
 3. Validation de l’approche SumUp hébergée et disponibilité du compte marchand.
 4. Prestataire SMS et budget d’envoi.
 5. Prix, jauge, dates de vente et durée des réservations.
-6. Classe à renseigner obligatoirement dans la inscription après validation du compte ; liste des classes à fournir.
-7. Coordonnées de l’acheteur et accès à sa commande.
-8. Règles de remboursement, transfert de billet, sortie et éventuelle réentrée.
-9. Règle SAM, conditions d’admission et mentions définitives.
-10. Validation de la séparation administrateur/superadmin et des fonctions proposées.
-11. Durées de conservation, validité des liens et procédure de récupération d’accès.
-12. Méthode de connexion des étudiants et inscription des bénéficiaires d’un achat groupé ; l’email est confirmé avant inscription, le SMS avant paiement.
-13. Choix de la pile serveur et de la base, à proposer après confirmation de l’environnement cible.
+
+6. Coordonnées de l’acheteur et accès à sa commande.
+7. Règles de remboursement, transfert de billet, sortie et éventuelle réentrée.
+8. Règle SAM, conditions d’admission et mentions définitives.
+9. Validation de la séparation administrateur/superadmin et des fonctions proposées.
+10. Durées de conservation, validité des liens et procédure de récupération d’accès.
+11. Méthode de connexion des étudiants et inscription des bénéficiaires d’un achat groupé ; l’email est confirmé avant inscription, le SMS avant paiement.
+12. Choix de la pile serveur et de la base, à proposer après confirmation de l’environnement cible.
 
 ## 12. Suite
 
@@ -230,9 +230,9 @@ Domaine web retenu : `https://glorieux.snoopup.io`. L’utilisateur autorise la 
 À cette mise à jour, aucun changement DNS ou SES n’a été effectué et aucun accès cloud n’a été confirmé. Aucun fichier de configuration cloud n’est présent dans le projet courant ; AWS CLI est disponible, mais aucune variable d’environnement AWS ou OVH n’est exposée à la session.
 
 
-## 14. Tableau de bord, classes et déclaration de majorité
+## 14. Tableau de bord et déclaration de majorité
 
-Demandes complémentaires : afficher immédiatement les KPI dans l’interface administrateur et permettre la consultation des listes globales et par classe.
+Demandes complémentaires : afficher immédiatement les KPI dans l’interface administrateur et permettre la consultation des listes par événement.
 
 KPI par événement, visibles dès l’ouverture :
 - Participants avec billet payé et actif / jauge, et taux de remplissage.
@@ -240,11 +240,11 @@ KPI par événement, visibles dès l’ouverture :
 - Inscriptions sans billet payé, présentées séparément des ventes confirmées.
 - Entrées validées / billets actifs et montant total des paiements confirmés.
 
-Ne pas confondre nombre de comptes, nombre de commandes et nombre de participants. Proposition : « inscrits » désigne les détenteurs d’un billet payé et actif. Le terme « sous-inscrits » est provisoirement interprété comme les sous-listes par classe et reste à clarifier s’il désigne un statut distinct.
+Ne pas confondre nombre de comptes, nombre de commandes et nombre de participants. Proposition : « inscrits » désigne les détenteurs d’un billet payé et actif. Les préinscriptions et les billets payés sont présentés séparément.
 
-Listes : recherche par nom/prénom, filtres événement, classe, paiement et entrée ; effectif par classe et ouverture de la liste correspondante. Présenter les préinscrits et les inscrits payés séparément. Les exports et coordonnées restent réservés aux rôles habilités.
+Listes : recherche par nom/prénom et filtres événement, paiement et entrée. Présenter les préinscrits et les inscrits payés séparément. Les exports et coordonnées restent réservés aux rôles habilités.
 
-Après validation du compte, l’étudiant remplit une inscription propre à l’événement : classe obligatoire (liste administrable), puis une déclaration obligatoire avec deux choix exclusifs, sans choix présélectionné :
+Après validation du compte, l’étudiant remplit une inscription propre à l’événement : une déclaration obligatoire avec deux choix exclusifs, sans choix présélectionné :
 
 - « Je déclare être âgé(e) de dix-huit ans révolus à la date de l’événement. »
 - « Je déclare que je serai mineur(e) à la date de l’événement et avoir informé mon ou mes représentants légaux de mon inscription et de ma participation à cette soirée, ainsi que de sa date, de ses horaires et de son lieu. »
@@ -255,7 +255,7 @@ Conserver l’auteur de la déclaration, l’événement, le choix, la date de v
 
 La majorité est appréciée à la date de l’événement ; la déclaration seule ne vaut pas preuve d’âge pour la délivrance d’alcool. L’accès des mineurs et le contrôle d’âge doivent suivre les règles applicables au lieu et à l’événement. Référence : https://www.legifrance.gouv.fr/codes/affichCode.do?cidTexte=LEGITEXT000006072665&idSectionTA=LEGISCTA000006171207
 
-Recette supplémentaire : inscription inaccessible avant validation du compte ; classe et choix de déclaration obligatoires côté serveur ; refus des choix simultanés ; KPI sans double comptage et exclusions des billets annulés ; filtres par classe conformes aux effectifs ; historique du texte accepté conservé.
+Recette supplémentaire : inscription inaccessible avant validation du compte ; choix de déclaration obligatoire côté serveur ; refus des choix simultanés ; KPI sans double comptage et exclusions des billets annulés ; historique du texte accepté conservé.
 
 ## 15. Accès infrastructure autorisés
 
@@ -329,9 +329,9 @@ Le superadmin propriétaire est créé. Son accès initial est conservé dans de
 
 Règle actuelle pour l’achat groupé : chaque bénéficiaire doit confirmer son email et compléter sa propre inscription avant l’achat. Au paiement, le titulaire du compte saisit les codes SMS reçus par chacun. La déclaration des mineurs reste personnelle ; les numéros des autres bénéficiaires sont masqués sauf les deux derniers chiffres.
 
-Fonctions implémentées : comptes, confirmation email puis téléphone au paiement, inscriptions sans code événement, classes, administration et rôles, KPI et exports CSV, intégration SumUp hébergée avec réconciliation, page de paiement simulée pour les événements TEST, billets PNG/PDF et signatures, envois persistants, contrôle par appareil et événement, partage public sans secrets, journal et sauvegarde locale quotidienne.
+Fonctions implémentées : comptes, confirmation email puis téléphone au paiement, inscriptions sans code événement, administration et rôles, KPI et exports CSV, intégration SumUp hébergée avec réconciliation, page de paiement simulée pour les événements TEST, billets PNG/PDF et signatures, envois persistants, contrôle par appareil et événement, partage public sans secrets, journal et sauvegarde locale quotidienne.
 
-Réserves de mise en exploitation : renseigner SumUp et le prestataire SMS (adaptateur Twilio fourni), créer les classes et événements réels, compléter les conditions juridiques et la conservation, vérifier les caméras iPhone/Android et réaliser les tests fournisseurs de bout en bout. Les ventes sont bloquées sans les intégrations nécessaires. Remboursements, transferts, réémissions et réentrées restent à définir/automatiser séparément. MAIL FROM personnalisé, politique DMARC, suivi SES des rejets/plaintes et externalisation des sauvegardes restent à finaliser. Le rôle SES de la plateforme est limité à l’envoi depuis `billetterie@snoopup.io`.
+Réserves de mise en exploitation : renseigner SumUp et le prestataire SMS (adaptateur Twilio fourni), créer les événements réels, compléter les conditions juridiques et la conservation, vérifier les caméras iPhone/Android et réaliser les tests fournisseurs de bout en bout. Les ventes sont bloquées sans les intégrations nécessaires. Remboursements, transferts, réémissions et réentrées restent à définir/automatiser séparément. MAIL FROM personnalisé, politique DMARC, suivi SES des rejets/plaintes et externalisation des sauvegardes restent à finaliser. Le rôle SES de la plateforme est limité à l’envoi depuis `billetterie@snoopup.io`.
 
 Test de charge isolé sur AWS : 2 000 validations avec 8 threads en 17,06 secondes, p95 245 ms, sans double entrée ; ce test mesure la logique serveur, hors caméra et réseau mobile et hors plafond du service HTTP. Ce résultat ne remplace pas la recette sur site.
 

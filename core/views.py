@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.views.decorators.cache import never_cache
-from .models import User,Event,Registration,Order,Ticket,Device,Audit,Job,OrderLine,SchoolClass,SmsBalance
+from .models import User,Event,Registration,Order,Ticket,Device,Audit,Job,OrderLine,SmsBalance
 from .forms import RegisterForm,EventRegistrationForm,DeviceForm,BuyForm
 from .services import issue_challenge,verify_challenge,pre_register,limited,events_for
 from .delivery import ticket_sms_ready
@@ -61,7 +61,7 @@ def verify_email(request,user_id,token):
 @login_required
 @never_cache
 def account(request):
- return render(request,'core/account.html',{'registrations':Registration.objects.filter(user=request.user).select_related('event','school_class'),'tickets':Ticket.objects.filter(line__registration__user=request.user,active=True).select_related('line__order__event'),'orders':Order.objects.filter(buyer=request.user).select_related('event')[:20]})
+ return render(request,'core/account.html',{'registrations':Registration.objects.filter(user=request.user).select_related('event'),'tickets':Ticket.objects.filter(line__registration__user=request.user,active=True).select_related('line__order__event'),'orders':Order.objects.filter(buyer=request.user).select_related('event')[:20]})
 
 @login_required
 def preregister(request,slug):
@@ -73,7 +73,7 @@ def preregister(request,slug):
   if limited('event-registration:'+str(request.user.pk),20):messages.error(request,'Trop de tentatives. Réessayez plus tard.')
   elif form.is_valid():
    try:
-    pre_register(request.user,e,form.cleaned_data['school_class'],form.cleaned_data['declaration']);return redirect('buy',slug=slug)
+    pre_register(request.user,e,form.cleaned_data['declaration']);return redirect('buy',slug=slug)
    except ValidationError as exc:error_message(request,exc)
  return render(request,'core/form.html',{'form':form,'title':'Ton inscription','eyebrow':'03 / '+e.name,'submit':'M’inscrire à la soirée','intro':'Cette déclaration est personnelle. L’inscription ne réserve pas de place ; seul le paiement confirmé donne droit à un billet.'})
 
@@ -94,7 +94,7 @@ def buy(request,slug):
   try:
    state=signing.loads(request.POST.get('phone_state',''),salt='phone-purchase',max_age=1800)
    if not isinstance(state,dict) or state!={'u':request.user.pk,'e':e.pk,'p':e.price_cents,'r':state.get('r')} or not isinstance(state.get('r'),list):raise signing.BadSignature('invalid purchase state')
-   regs=list(Registration.objects.select_related('user','school_class').filter(event=e,pk__in=state['r']).order_by('pk'))
+   regs=list(Registration.objects.select_related('user').filter(event=e,pk__in=state['r']).order_by('pk'))
    if sorted(r.pk for r in regs)!=sorted(state['r']) or any(not r.user.email_verified for r in regs):raise signing.BadSignature('participants changed')
    if request.POST.get('action')=='resend_phones':
     for r in regs:
@@ -130,7 +130,7 @@ def buy(request,slug):
   else:
    emails=[x.strip().lower() for x in form.cleaned_data['participants'].splitlines() if x.strip()]
    emails=list(dict.fromkeys([request.user.email,*emails]))
-   regs=list(Registration.objects.select_related('user','school_class').filter(event=e,user__email__in=emails).order_by('pk'))
+   regs=list(Registration.objects.select_related('user').filter(event=e,user__email__in=emails).order_by('pk'))
    if len(emails)>20 or len(regs)!=len(emails) or any(not r.user.email_verified or r.declaration_version=='test' for r in regs):messages.error(request,'Chaque bénéficiaire doit avoir confirmé son adresse mail et son inscription à cette soirée.')
    else:
     missing=[r for r in regs if not r.user.phone_verified]
@@ -264,20 +264,18 @@ def dashboard(request):
  if not (u.is_superuser or u.role in ['admin','organizer']):raise PermissionDenied()
  events=events_for(u)
  e=events.filter(pk=request.GET.get('event')).first() if request.GET.get('event','').isdigit() else events.first()
- rows=Registration.objects.none();classes=[];kpi={}
+ rows=Registration.objects.none();kpi={}
  if e:
   held=OrderLine.objects.filter(order__event=e,held=True).count()
   paid=Ticket.objects.filter(line__order__event=e,line__order__status='paid',active=True)
   regs=Registration.objects.filter(event=e)
   kpi={'paid':paid.count(),'capacity':e.capacity,'available':max(0,e.capacity-held),'held':held-paid.count(),'entries':paid.filter(used_at__isnull=False).count(),'preregistered':regs.exclude(orderline__held=True,orderline__order__status='paid').distinct().count(),'tests':Ticket.objects.filter(line__order__event=e,is_test=True,active=True).count(),'revenue':f'{(Order.objects.filter(event=e,status="paid").aggregate(n=Sum("total_cents"))["n"] or 0)/100:.2f}'}
-  classes=SchoolClass.objects.filter(registration__event=e).annotate(total=Count('registration',filter=Q(registration__event=e)),paid=Count('registration',filter=Q(registration__event=e,registration__orderline__ticket__active=True,registration__orderline__order__status='paid'))).distinct()
   rows=annotated_participants(e)
-  if request.GET.get('class','').isdigit():rows=rows.filter(school_class_id=request.GET['class'])
   q=request.GET.get('q','').strip()[:150]
   if q:rows=rows.filter(Q(user__last_name__icontains=q)|Q(user__first_name__icontains=q))
   if request.GET.get('status')=='paid':rows=rows.filter(paid_count__gt=0)
   elif request.GET.get('status')=='pending':rows=rows.filter(paid_count=0)
- return render(request,'core/dashboard.html',{'events':events,'event':e,'rows':rows.order_by('user__last_name')[:500],'classes':classes,'kpi':kpi,'sms_balance':SmsBalance.objects.order_by('-observed_at').first() if u.is_superuser else None})
+ return render(request,'core/dashboard.html',{'events':events,'event':e,'rows':rows.order_by('user__last_name')[:500],'kpi':kpi,'sms_balance':SmsBalance.objects.order_by('-observed_at').first() if u.is_superuser else None})
 
 def privacy(request):return render(request,'core/privacy.html')
 
@@ -293,18 +291,17 @@ def export_participants(request):
  if not (request.user.is_superuser or request.user.role in ['admin','organizer']):raise PermissionDenied()
  event=get_object_or_404(events_for(request.user),pk=request.GET.get('event'))
  rows=annotated_participants(event)
- if request.GET.get('class','').isdigit():rows=rows.filter(school_class_id=request.GET['class'])
  response=HttpResponse(content_type='text/csv; charset=utf-8');response['Content-Disposition']='attachment; filename="participants.csv"';response.write('\ufeff')
- writer=csv.writer(response,delimiter=';');writer.writerow(['Nom','Prénom','Email','Téléphone','Classe','Statut','Déclaration','Date/heure d’entrée'])
+ writer=csv.writer(response,delimiter=';');writer.writerow(['Nom','Prénom','Email','Téléphone','Statut','Déclaration','Date/heure d’entrée'])
  def safe(value):
   value=str(value)
   return "'"+value if value.lstrip().startswith(('=','+','-','@')) else value
- for r in rows:writer.writerow([safe(x) for x in [r.user.last_name,r.user.first_name,r.user.email,r.user.phone,r.school_class.name,'Billet payé' if r.paid_count else 'Préinscrit',r.get_declaration_display(),timezone.localtime(r.entry_at).strftime('%d/%m/%Y %H:%M:%S') if r.entry_at else '']])
+ for r in rows:writer.writerow([safe(x) for x in [r.user.last_name,r.user.first_name,r.user.email,r.user.phone,'Billet payé' if r.paid_count else 'Préinscrit',r.get_declaration_display(),timezone.localtime(r.entry_at).strftime('%d/%m/%Y %H:%M:%S') if r.entry_at else '']])
  Audit.objects.create(actor=request.user,event=event,action='export_participants');return response
 
 
 def annotated_participants(event):
- return Registration.objects.filter(event=event).select_related('user','school_class').annotate(paid_count=Count('orderline__ticket',filter=Q(orderline__ticket__active=True,orderline__order__status='paid',orderline__ticket__is_test=False)),test_count=Count('orderline__ticket',filter=Q(orderline__ticket__active=True,orderline__ticket__is_test=True)),entry_at=Max('orderline__ticket__used_at',filter=Q(orderline__ticket__active=True,orderline__ticket__is_test=event.is_test)))
+ return Registration.objects.filter(event=event).select_related('user').annotate(paid_count=Count('orderline__ticket',filter=Q(orderline__ticket__active=True,orderline__order__status='paid',orderline__ticket__is_test=False)),test_count=Count('orderline__ticket',filter=Q(orderline__ticket__active=True,orderline__ticket__is_test=True)),entry_at=Max('orderline__ticket__used_at',filter=Q(orderline__ticket__active=True,orderline__ticket__is_test=event.is_test)))
 
 @login_required
 @never_cache
@@ -333,16 +330,15 @@ def participants_pdf(request):
  from reportlab.lib.pagesizes import A4,landscape
  if not (request.user.is_superuser or request.user.role in ['admin','organizer']):raise PermissionDenied()
  event=get_object_or_404(events_for(request.user),pk=request.GET.get('event'))
- rows=annotated_participants(event).order_by('school_class__name','user__last_name')
- if request.GET.get('class','').isdigit():rows=rows.filter(school_class_id=request.GET['class'])
+ rows=annotated_participants(event).order_by('user__last_name','user__first_name')
  out=io.BytesIO();styles=getSampleStyleSheet();story=[]
  title=('TEST — ' if event.is_test else '')+event.name+' — liste des participants'
  story.append(Paragraph(escape(title),styles['Heading1']));story.append(Paragraph('Généré le '+timezone.localtime().strftime('%d/%m/%Y à %H:%M:%S'),styles['Normal']));story.append(Spacer(1,15))
- data=[['Nom / prénom','Classe','Billet','Date et heure d’entrée']]
+ data=[['Nom / prénom','Billet','Date et heure d’entrée']]
  for row in rows:
-  values=[row.user.get_full_name(),row.school_class.name,'Payé' if row.paid_count else ('TEST' if row.test_count else 'Préinscrit'),timezone.localtime(row.entry_at).strftime('%d/%m/%Y %H:%M:%S') if row.entry_at else 'Non entré']
+  values=[row.user.get_full_name(),'Payé' if row.paid_count else ('TEST' if row.test_count else 'Préinscrit'),timezone.localtime(row.entry_at).strftime('%d/%m/%Y %H:%M:%S') if row.entry_at else 'Non entré']
   data.append([Paragraph(escape(str(value)),styles['Normal']) for value in values])
- table=Table(data,colWidths=[240,160,110,220],repeatRows=1)
+ table=Table(data,colWidths=[300,140,260],repeatRows=1)
  table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#152440')),('TEXTCOLOR',(0,0),(-1,0),colors.white),('BACKGROUND',(0,1),(-1,-1),colors.HexColor('#f6f1e6')),('GRID',(0,0),(-1,-1),.3,colors.HexColor('#c7c7c7')),('VALIGN',(0,0),(-1,-1),'TOP'),('TOPPADDING',(0,0),(-1,-1),8),('BOTTOMPADDING',(0,0),(-1,-1),8)]));story.append(table)
  def page_number(c,doc):c.setFont('Helvetica',9);c.drawRightString(800,20,'Glorieux — page '+str(doc.page))
  SimpleDocTemplate(out,pagesize=landscape(A4),rightMargin=40,leftMargin=40,topMargin=35,bottomMargin=35).build(story,onFirstPage=page_number,onLaterPages=page_number)

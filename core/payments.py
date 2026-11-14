@@ -119,15 +119,13 @@ def reconcile_order(order):
  r.raise_for_status();confirm_payment(order.pk,r.json())
 
 def create_test_order(actor,event,recipient,send_email=False):
- from .models import SchoolClass
  from django.core.exceptions import PermissionDenied
  if not actor.is_superuser:raise PermissionDenied()
  with transaction.atomic():
   e=Event.objects.select_for_update().get(pk=event.pk)
   if not e.is_test:raise ValidationError('Activez le mode TEST de cet événement avant de générer un billet fictif.')
   if not recipient.email:raise ValidationError('Le compte destinataire doit posséder une adresse email.')
-  school_class,_=SchoolClass.objects.get_or_create(name='TEST — données fictives',defaults={'active':False})
-  registration,_=Registration.objects.get_or_create(event=e,user=recipient,defaults={'school_class':school_class,'declaration':'adult','declaration_text':'DONNÉES FICTIVES DE TEST : aucune déclaration de majorité réelle.','declaration_version':'test'})
+  registration,_=Registration.objects.get_or_create(event=e,user=recipient,defaults={'declaration':'adult','declaration_text':'DONNÉES FICTIVES DE TEST : aucune déclaration de majorité réelle.','declaration_version':'test'})
   order=Order.objects.create(buyer=actor,event=e,is_test=True,status='test',total_cents=e.price_cents)
   line=OrderLine.objects.create(order=order,registration=registration,price_cents=e.price_cents,held=False)
   ticket=Ticket.objects.create(line=line,is_test=True)
