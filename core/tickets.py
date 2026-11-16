@@ -17,14 +17,17 @@ def encoded_ticket_data(data):
  raw=json.dumps(data,sort_keys=True,separators=(',',':')).encode()
  return base64.urlsafe_b64encode(raw).decode().rstrip('=')
 
+def _numeric_signature(key,message):
+ return f"{int.from_bytes(hmac.new(key,message.encode('ascii'),hashlib.sha256).digest()[:7],'big')>>3:016d}"
+
 def ticket_token(ticket):
  event_id=int(ticket.line.order.event_id);participant_id=int(ticket.line.registration_id)
- if not 0<event_id<2**24 or not 0<participant_id<2**32:raise ValueError('Event or participant reference exceeds compact QR limits.')
+ if not 0<event_id<1000 or not 0<participant_id<1000000:raise ValueError('Event or participant reference exceeds numeric QR limits.')
  version='G1T' if ticket.is_test else 'G1R'
- message=version+f'{event_id:06X}{participant_id:08X}'
+ message=version+f'{event_id:03d}{participant_id:06d}'
  key=hmac.new(settings.TICKET_SECRET.encode(),b'glorieux-test-ticket-v1',hashlib.sha256).digest() if ticket.is_test else settings.TICKET_SECRET.encode()
- signature=hmac.new(key,message.encode('ascii'),hashlib.sha256).digest()[:8].hex().upper()
- return version+f'{event_id:06X}'+signature+f'{participant_id:08X}'
+ signature=_numeric_signature(key,message)
+ return f'{event_id:03d}{signature}{participant_id:06d}'
 
 def verify_qr_data(value):
  """Verify authenticity before any database lookup. Never disclose the signing key."""
@@ -34,14 +37,22 @@ def verify_qr_data(value):
   url=urlsplit(value)
   if url.netloc!=urlsplit(settings.SITE_URL).netloc or not url.path.startswith('/q/'):raise ValidationError('QR code étranger à cette billetterie.',code='format_invalid')
   value=url.path[3:].strip('/')
- compact=value.upper()
- if re.fullmatch(r'G1[RT][0-9A-F]{30}',compact):
-  prefix=compact[:3];event_ref=compact[3:9];signature=compact[9:25];participant_ref=compact[25:33]
+ previous=value.upper()
+ if re.fullmatch(r'G1[RT][0-9A-F]{30}',previous):
+  prefix=previous[:3];event_ref=previous[3:9];signature=previous[9:25];participant_ref=previous[25:33]
   message=prefix+event_ref+participant_ref
   key=hmac.new(settings.TICKET_SECRET.encode(),b'glorieux-test-ticket-v1',hashlib.sha256).digest() if prefix=='G1T' else settings.TICKET_SECRET.encode()
   expected=hmac.new(key,message.encode('ascii'),hashlib.sha256).digest()[:8].hex().upper()
   if not hmac.compare_digest(expected,signature):raise ValidationError('Signature invalide : QR code falsifié ou altéré.',code='signature_invalid')
-  return {'r':int(participant_ref,16),'e':int(event_ref,16),'t':prefix=='G1T'}
+  return {'r':int(participant_ref,16),'e':int(event_ref,16),'t':prefix=='G1T','_legacy_compact':True}
+ if re.fullmatch(r'[0-9]{25}',value):
+  event_ref=value[:3];signature=value[3:19];participant_ref=value[19:]
+  for is_test,version in [(False,'G1R'),(True,'G1T')]:
+   message=version+event_ref+participant_ref
+   key=hmac.new(settings.TICKET_SECRET.encode(),b'glorieux-test-ticket-v1',hashlib.sha256).digest() if is_test else settings.TICKET_SECRET.encode()
+   expected=_numeric_signature(key,message)
+   if hmac.compare_digest(expected,signature):return {'r':int(participant_ref),'e':int(event_ref),'t':is_test}
+  raise ValidationError('Signature invalide : QR code falsifié ou altéré.',code='signature_invalid')
  try:version,encoded,signature=value.split('.')
  except ValueError:raise ValidationError('QR code incomplet ou illisible.',code='format_invalid')
  if version not in ['v1','t1']:raise ValidationError('Version de billet non reconnue.',code='format_invalid')

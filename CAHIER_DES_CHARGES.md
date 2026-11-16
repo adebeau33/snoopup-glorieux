@@ -87,9 +87,9 @@ Références :
 
 Le participant reçoit un seul PNG nominatif. Il affiche son nom et prénom, le nom et la date de la soirée, et un QR agrandi avec le logo de la soirée au centre. Le QR n’est pas une URL : il ne donne aucun accès public au billet. Le valideur connecté le lit dans `/validation/` avec la caméra du téléphone ou un lecteur Bluetooth en mode clavier.
 
-Format compact du QR : préfixe version/type, référence d’événement sur 3 octets, signature HMAC-SHA-256 tronquée sur 8 octets au milieu, référence d’inscription du participant sur 4 octets. Les références sont encodées en hexadécimal. La signature est calculée sur la version, le type, la référence d’événement et la référence d’inscription. La clé secrète reste uniquement sur le serveur ; les billets TEST ont une clé dérivée distincte. Une signature invalide est refusée avant toute recherche en base ; une signature valide mais inconnue demande un contrôle organisateur.
+Format courant du QR : exactement 25 chiffres, sans URL ni préfixe visible. Les trois premiers identifient l’événement (1 à 999), les seize suivants portent une signature HMAC de 53 bits, et les six derniers identifient l’inscription (1 à 999 999). La signature couvre le type réel/test et les deux références ; les billets TEST utilisent une clé dérivée distincte. Le valideur vérifie la signature avant toute recherche en base. Les anciennes versions QR restent acceptées pendant la transition.
 
-La référence d’événement et la référence d’inscription sont des identifiants, pas des secrets. Les 8 octets d’HMAC protègent le code contre la fabrication ; leur position au milieu du texte vise aussi à décourager la copie sommaire d’un suffixe.
+La référence d’événement et la référence d’inscription sont des identifiants, pas des secrets. La signature de 53 bits permet un code numérique de 25 chiffres et reste au milieu pour réduire les erreurs de copie. La clé secrète reste côté serveur. Cette signature est plus courte que le précédent format HMAC de 64 bits afin de respecter la limite de 25 chiffres.
 
 Le QR utilise une correction d’erreur élevée, une zone blanche périphérique et un contraste marine/blanc. Le logo central reste assez petit pour préserver la lecture. Le billet de test porte un bandeau BILLET TEST hors du QR. Les anciens QR version v1/t1 restent reconnus par le valideur durant la transition.
 
@@ -349,9 +349,9 @@ Aucune option ni demande de rôle administrateur n’apparaît à l’inscriptio
 
 ## 22. Références compactes et authenticité des QR
 
-Le QR contient une référence d’événement de 3 octets, une référence d’inscription de 4 octets et un HMAC-SHA-256 tronqué à 8 octets, placé au milieu du code entre les deux références. Le texte commence par une version et un marqueur réel/test. Les références sont hexadécimales ; le QR ne contient ni URL ni clé secrète. La référence d’inscription est propre au participant dans cet événement.
+Le QR courant contient 25 chiffres : référence événement sur 3 chiffres, HMAC-SHA-256 tronqué à 53 bits sur 16 chiffres au milieu et référence d’inscription sur 6 chiffres. Aucun lien ni secret n’est placé dans le QR. La référence d’inscription est celle de l’inscription du participant à cet événement.
 
-La signature est calculée sur la version/type et les deux références. La position de la signature n’ajoute pas de force cryptographique, mais évite le suffixe court aisément recopié. L’authenticité provient du HMAC et de sa clé serveur, pas de l’ordre des caractères. Les billets TEST utilisent une clé dérivée distincte.
+La signature est calculée sur le type réel/test et les deux références. Elle est vérifiée avant toute recherche en base. Les billets TEST utilisent une clé dérivée distincte.
 
 Le valideur vérifie la signature avant toute recherche en base. Signature invalide : refus. Signature valide mais participant absent : billet inconnu, contrôle organisateur requis, sans entrée automatique. Signature valide et référence connue : contrôler le paiement, le mode TEST, l’annulation et l’usage antérieur avant d’accepter. Les anciennes versions de QR restent temporairement reconnues.
 
